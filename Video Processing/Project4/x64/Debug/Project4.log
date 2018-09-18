@@ -1,0 +1,5 @@
+﻿  opencv.cpp
+c:\users\stfan\source\repos\project4\project4\opencv.cpp(152): warning C4305: '=': 'double'에서 'float'(으)로 잘립니다.
+c:\users\stfan\source\repos\project4\project4\opencv.cpp(156): warning C4305: '=': 'double'에서 'float'(으)로 잘립니다.
+c:\users\stfan\source\repos\project4\project4\opencv.cpp(160): warning C4305: '=': 'double'에서 'float'(으)로 잘립니다.
+  Project4.vcxproj -> C:\Users\stfan\source\repos\Project4\x64\Debug\Project4.exe
