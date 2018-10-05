@@ -1,16 +1,46 @@
+#include <string>
 #include <iostream>
 #include <opencv2\opencv.hpp>
 #include <opencv2\imgproc\imgproc.hpp>
 #include <opencv2\video\video.hpp>
 #include <opencv2\core\core.hpp>
-
-#define resizeSize 3
+#include <Windows.h>
+#define resizeSize 2
 
 using namespace cv;
 using namespace std;
 
-bool intersection(Point start, Point end, Point center);		// 교차로 판별
-double distanceBetweenPoints(Point point1, Point point2);		// 두 점 사이 거리
+
+void setLabel(Mat& image, string str, vector<Point> contour)
+{
+	int fontface = FONT_HERSHEY_SIMPLEX;
+	double scale = 0.5;
+	int thickness = 1;
+	int baseline = 0;
+
+	Size text = getTextSize(str, fontface, scale, thickness, &baseline);
+	Rect r = boundingRect(contour);
+
+	Point pt(r.x + ((r.width - text.width) / 2), r.y + ((r.height + text.height) / 2));
+	rectangle(image, pt + Point(0, baseline), pt + Point(text.width, -text.height), CV_RGB(200, 200, 200), CV_FILLED);
+	putText(image, str, pt, fontface, scale, CV_RGB(0, 0, 0), thickness, 8);
+}
+class WatershedSegmenter {
+private:
+	cv::Mat markers;
+public:
+	void setMarkers(cv::Mat& markerImage)
+	{
+		markerImage.convertTo(markers, CV_32S);
+	}
+
+	cv::Mat process(cv::Mat &image)
+	{
+		cv::watershed(image, markers);
+		markers.convertTo(markers, CV_8U);
+		return markers;
+	}
+};
 
 int main() {
 	//global variables
@@ -24,11 +54,12 @@ int main() {
 	Mat thresholdImage;
 	Mat ContourImg;
 
+
 	Ptr< BackgroundSubtractor> pMOG2; //MOG2 Background subtractor
 
 	pMOG2 = createBackgroundSubtractorMOG2(500, 16, true);
 
-	char fileName[100] = "Test_normal2.mp4";
+	char fileName[100] = "Test_normal1.mp4";
 	VideoCapture stream1(fileName);
 
 	Mat element = getStructuringElement(MORPH_RECT, Size(7, 7), Point(3, 3));
@@ -40,6 +71,7 @@ int main() {
 	//unconditional loop   
 	while (true) {
 
+		Sleep(100);
 		if (!(stream1.read(origin))) //get one frame form video   
 			break;
 		//cout << pos[0].getX() << " " << pos[0].getY() << pos[0].getWidth() << endl;
@@ -51,8 +83,9 @@ int main() {
 		/////////////////////////////////////////////////////////////////
 		//1단계 : 밝기 대조 조정
 		contrastImage = resizeImage.clone();
-		float alpha = 1;
-		int beta = 50;
+		/*
+		float alpha = 1.2;
+		int beta = 0;
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
 				for (int c = 0; c < 3; c++) {
@@ -60,7 +93,8 @@ int main() {
 				}
 			}
 		}
-		float alpha2 = 0.5;
+		
+		float alpha2 = 0.9;
 		int beta2 = 1;
 		for (int i = 0; i < 3; i++) {
 			for (int y = 0; y < contrastImage.rows; y++) {
@@ -71,6 +105,7 @@ int main() {
 				}
 			}
 		}
+		
 		alpha2 = 2;
 		for (int i = 0; i < 3; i++) {
 			for (int y = 0; y < contrastImage.rows; y++) {
@@ -81,8 +116,119 @@ int main() {
 				}
 			}
 		}
-		imshow("1. 밝기, 대조 조정", contrastImage);
+		*/
+		Mat sharpening;
+		GaussianBlur(contrastImage, sharpening, Size(0, 0), 3);
+		cv::addWeighted(contrastImage, 1.5, sharpening, -0.5, 0, sharpening);
+		imshow("1. sharpening", sharpening);
+		Mat gray;
+		cvtColor(sharpening, gray, CV_RGB2GRAY);
+		imshow("2. grayscale", gray);
+		Mat edge;
+		Canny(gray, edge, 130, 210, 3); // Canny 연산
+		threshold(edge, edge, 0, 255, CV_THRESH_BINARY_INV); // sobel 영상과 비교하려고 반전
+		imshow("Canny Image", edge);
+
+		/*
+		long tmp[2]; //처음인지 판별을 위한것
+		long tmp2[2]; // 처음인지 판별을 위한 것
+		long tmp3[2];
+		long leftdown[2];
+		long rightup[2];
+		uchar r, g, b;
+		for (int y = 0; y < edge.rows; ++y) {
+			Vec3b* Pixel = edge.ptr<Vec3b>(y);
+			for (int x = 0; x < edge.cols; ++x) {
+				r = Pixel[x][2];
+				g = Pixel[x][1];
+				b = Pixel[x][0];
+
+				if (r < 30 || g < 30 || b < 30) {
+					if (x>leftdown[0] && y>leftdown[1]) {
+						tmp[0] = x;
+						tmp[1] = y;
+					}
+					if (x - tmp[0] < 50) {
+						leftdown[0] = x;
+						leftdown[1] = y;
+					}
+				}
+
+			}
+		}
+		*/
+		/*
+		Mat img_result;
+		Mat binary_image;
+		threshold(edge, edge, 125, 255, THRESH_BINARY_INV | THRESH_OTSU);
+		
+		//contour를 찾는다.
+		vector<vector<Point> > contours;
+		findContours(edge, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
+
+		//contour를 근사화한다.
+		vector<Point2f> approx;
+		img_result = edge.clone();
+
+		for (size_t i = 0; i < contours.size(); i++)
+		{
+			approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*0.02, true);
+
+			if (fabs(contourArea(Mat(approx))) > 300)  //면적이 일정크기 이상이어야 한다. 
+			{
+
+				int size = approx.size();
+
+				//Contour를 근사화한 직선을 그린다.
+				if (size % 2 == 0) {
+					line(img_result, approx[0], approx[approx.size() - 1], Scalar(0, 255, 0), 3);
+
+					for (int k = 0; k < size - 1; k++)
+						line(img_result, approx[k], approx[k + 1], Scalar(0, 255, 0), 3);
+
+					for (int k = 0; k < size; k++)
+						circle(img_result, approx[k], 3, Scalar(0, 0, 255));
+				}
+				else {
+					line(img_result, approx[0], approx[approx.size() - 1], Scalar(0, 255, 0), 3);
+
+					for (int k = 0; k < size - 1; k++)
+						line(img_result, approx[k], approx[k + 1], Scalar(0, 255, 0), 3);
+
+					for (int k = 0; k < size; k++)
+						circle(img_result, approx[k], 3, Scalar(0, 0, 255));
+				}
+
+
+
+				//도형을 판정한다.
+
+				if (size == 4 && isContourConvex(Mat(approx)))
+					setLabel(img_result, "r", contours[i]); //사각형
+			}
+
+		}
+		imshow("사각형", img_result);
+		*/
+		/*
+		Mat sobelX, sobelY, sobel;
+		Sobel(sharpening, sobelX, CV_16S, 1, 0);
+		Sobel(sharpening, sobelY, CV_16S, 0, 1);
+		sobel = abs(sobelX) + abs(sobelY);    // L1 놈(norm) 계산
+
+		double sobmin, sobmax;
+		minMaxLoc(sobel, &sobmin, &sobmax); // sobel 최댓값 찾기
+
+		Mat sobelImage;
+		sobel.convertTo(sobelImage, CV_8U, -255. / sobmax, 255); // 8bit 영상으로 변환
+		imshow("Sobel Image", sobelImage);
+
+		// sobel 낮은 경계 값
+		Mat sobelThresholded;
+		threshold(sobelImage, sobelThresholded, 210, 255, THRESH_BINARY);
+		imshow("sobel 낮은 경계 값", sobelThresholded);
 		//rgb조정 함수
+		*/
 		/*
 		Mat temp = resizeF.clone();
 		for (int y = 0; y < temp.rows; y++) {
@@ -111,32 +257,19 @@ int main() {
 
 		/////////////////////////////////////////////////////////////////
 		//2단계 : 블러 처리 -> 인식되는 범위를 늘려줌
-		blur(contrastImage, blurImage, Size(4, 4));
+		blur(sharpening, blurImage, Size(5, 5));
 		//medianBlur(resizeF, resizeF, 5);
 		//GaussianBlur(resizeF, resizeF, Size(5, 5), 1.5);
 
 
 		/////////////////////////////////////////////////////////////////
 		//3단계 : MOG2 적용 -> 배경 제거
-		pMOG2->apply(blurImage, MOG2Image);
+		pMOG2->apply(contrastImage, MOG2Image);
 		imshow("2. blur + MOG2", MOG2Image);
-
-
-		/////////////////////////////////////////////////////////////////
-		//4단계 : morphology -> 침식 팽창 변환 적용
-		//morphologyEx(MOG2Image, MOG2Image, CV_MOP_ERODE, element);
-		morphologyEx(MOG2Image, mophologyImage, CV_MOP_CLOSE, element);
-		morphologyEx(mophologyImage, mophologyImage, CV_MOP_OPEN, element2);
-		dilate(mophologyImage, mophologyImage, element2, Point(-1, -1), 2);
-		imshow("3. morphology", mophologyImage);
-
-		/////////////////////////////////////////////////////////////////
-		//5단계 : 그림자 제거
-		threshold(mophologyImage, thresholdImage, 128, 255, THRESH_BINARY);
-		imshow("4. threshold", thresholdImage);
-
-		//blob
-		// Setup SimpleBlobDetector parameters.
+		Mat closing;
+		morphologyEx(blurImage,closing ,MORPH_CLOSE, element);
+		imshow("4. closing", closing);
+	
 		SimpleBlobDetector::Params params;
 
 		// Change thresholds
@@ -167,62 +300,55 @@ int main() {
 		Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
 
 		// Detect blobs
-		detector->detect(blurImage, keypoints);
+		detector->detect(MOG2Image, keypoints);
 		Mat blobImage;
-		drawKeypoints(blurImage, keypoints, blobImage, Scalar(0, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+		drawKeypoints(MOG2Image, keypoints, blobImage, Scalar(0, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
 		// Show blobs
-		imshow("5 . keypoints", blobImage);
+
+		imshow("Blobs", MOG2Image);
 
 
-		/////////////////////////////////////////////////////////////////
-		/*//6단계 : contour찾기 -> 윤곽선 찾아서 네모칸 생성
-		ContourImg = thresholdImage.clone();
-		vector< vector< Point> > contours;
-		findContours(ContourImg,
-			contours, // a vector of contours
-			CV_RETR_EXTERNAL, // retrieve the external contours
-			CV_CHAIN_APPROX_NONE); // all pixels of each contours
+		cv::Mat blank(closing.size(), CV_8U, cv::Scalar(0xFF));
+		cv::Mat dest;
 
-		vector< Rect > output;
-		vector< vector< Point> >::iterator itc = contours.begin();
-		/*while (itc != contours.end()) {
-			//Create bounding rect of object
-			Rect mr = boundingRect(Mat(*itc));
-			rectangle(resizeImage, mr, CV_RGB(255, 0, 0));
-			++itc;
-			if (distanceBetweenPoints(Point(mr.x, mr.y), Point(mr.x + (mr.width / 2), mr.y + (mr.height / 2))) > 100) {		// 네모칸 크기가 100 이상이면
-				circle(resizeImage, Point(mr.x + (mr.width / 2), mr.y + (mr.height / 2)), 2, Scalar(255, 0, 0), 2);			// 가운데 점 하나 찍고
-				if (intersection(Point(pos[0].getX(), pos[0].getY()) / resizeSize, Point(pos[0].getWidth(), pos[0].getHeight()) / resizeSize, Point(mr.x + (mr.width / 2), mr.y + (mr.height / 2))))
-					countCar++;					// 교차점 지나가는지 확인
-			}
-		}*/
-		imshow("5. end", resizeImage);
+		// Create markers image
+		cv::Mat markers(closing.size(), CV_8U, cv::Scalar(-1));
+		//Rect(topleftcornerX, topleftcornerY, width, height);
+		//top rectangle
+		markers(Rect(0, 0, closing.cols, 5)) = Scalar::all(1);
+		//bottom rectangle
+		markers(Rect(0, closing.rows - 5, closing.cols, 5)) = Scalar::all(1);
+		//left rectangle
+		markers(Rect(0, 0, 5, closing.rows)) = Scalar::all(1);
+		//right rectangle
+		markers(Rect(closing.cols - 5, 0, 5, closing.rows)) = Scalar::all(1);
+		//centre rectangle
+		int centreW = closing.cols / 2;
+		int centreH = closing.rows / 4;
+		markers(Rect(centreW/2-80, closing.rows-20 ,centreW, 20)) = Scalar::all(2);
+		markers.convertTo(markers, CV_BGR2GRAY);
+		imshow("markers", markers);
 
-		//cout << "현재까지 지나간 차 수 : " << countCar << endl;
+		//Create watershed segmentation object
+		WatershedSegmenter segmenter;
+		segmenter.setMarkers(markers);
+		cv::Mat wshedMask = segmenter.process(closing);
+		cv::Mat mask;
+		Mat eroding;
+		convertScaleAbs(wshedMask, mask, 1, 0);
+		double thresh = threshold(mask, mask, 1, 255, THRESH_BINARY);
+		erode(closing, eroding, Mat(), Point(1, 1), 1);
+		//imshow("erode", eroding);
+		
+		bitwise_and(closing, eroding, dest, mask);
+		dest.convertTo(dest, CV_8U);
+
+		//imshow("final_result", dest);
+		
 
 		if (waitKey(30) >= 0)
 			break;
 	}
 	return 0;
-}
-
-bool intersection(Point start, Point end, Point center) {
-	Point line = (start + end) / 2;
-	double num1 = 0.0, num2 = 0.0, num3 = 0.0;
-	num1 = distanceBetweenPoints(start, center);
-	num2 = distanceBetweenPoints(end, center);
-	num3 = distanceBetweenPoints(line, center);
-
-	cout << num1 << " " << num2 << " " << num3 << endl;
-
-	return true;
-}
-
-double distanceBetweenPoints(Point point1, Point point2) {
-
-	int intX = abs(point1.x - point2.x);
-	int intY = abs(point1.y - point2.y);
-
-	return(sqrt(pow(intX, 2) + pow(intY, 2)));
 }
