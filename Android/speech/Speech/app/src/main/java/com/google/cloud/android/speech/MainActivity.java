@@ -17,11 +17,15 @@
 package com.google.cloud.android.speech;
 
 import android.Manifest;
+import android.app.FragmentManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.location.Address;
+import android.location.Geocoder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -42,6 +46,15 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapFragment;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -53,11 +66,13 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.List;
 
 
-public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener {
+public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback{
 
     private static final String FRAGMENT_MESSAGE_DIALOG = "message_dialog";
+
 
     private static final String STATE_RESULTS = "results";
 
@@ -67,10 +82,15 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
     private Button btnShowLocation;
     private TextView txtLatitude;
     private TextView txtLongitude;
+    private TextView txtLatitude2;
+    private TextView txtLongitude2;
     private boolean isAccessFineLocation = false;
     private boolean isAccessCoarseLocation = false;
     private boolean isPermission = false;
     private GpsInfo gps;
+    private GoogleMap mMap;
+    private Geocoder geocoder;
+    private String destination;
 
     private final int PERMISSIONS_ACCESS_FINE_LOCATION = 1000;
     private final int PERMISSIONS_ACCESS_COARSE_LOCATION = 1001;
@@ -131,14 +151,25 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
     };
 
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+
+
+
         btnShowLocation = (Button) findViewById(R.id.btn_start);
         txtLatitude = (TextView) findViewById(R.id.tv_latitude);
         txtLongitude = (TextView) findViewById(R.id.tv_longitude);
+
+        txtLatitude2 = (TextView) findViewById(R.id.tv_latitude2);
+        txtLongitude2 = (TextView) findViewById(R.id.tv_longitude2);
 
 
         final Resources resources = getResources();
@@ -160,6 +191,27 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         btnShowLocation.setOnClickListener(new View.OnClickListener() {
             public void onClick(View arg0) {
 
+                double startLatitude;
+                double startLongitude;
+                double desLatitude;
+                double desLongitude;
+
+                List<Address> addressList = null;
+                try {
+                    addressList = geocoder.getFromLocationName(destination, 10);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                String[] splitStr = addressList.get(0).toString().split(",");
+                String address = splitStr[0].substring(splitStr[0].indexOf("\"") + 1, splitStr[0].length() - 2);
+                desLatitude = Double.valueOf(splitStr[10].substring(splitStr[10].indexOf("=") + 1));
+                desLongitude = Double.valueOf(splitStr[12].substring(splitStr[12].indexOf("=") + 1));
+
+                txtLatitude2.setText(String.valueOf(desLatitude));
+                txtLongitude2.setText(String.valueOf(desLongitude));
+
+                Toast.makeText(getApplication(), String.valueOf(desLatitude) + String.valueOf(desLongitude), Toast.LENGTH_LONG).show();
+
                 if (!isPermission) {
                     callPermission();
                     return;
@@ -168,17 +220,15 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                 gps = new GpsInfo(MainActivity.this);
                 if (gps.isGetLocation()) {
 
-                    double latitude = gps.getLatitude();
-                    double longitude = gps.getLongitude();
-
-//                    findRoute(37.56461982743129, 126.9823439963945);
-                    findRoute(latitude, longitude);
+                    startLatitude = gps.getLatitude();
+                    startLongitude = gps.getLongitude();
+                    findRoute(startLatitude, startLongitude, desLatitude, desLongitude);
 //                    tmapApi.setLatitude(latitude);
 //                    tmapApi.setLongitude(longitude);
 //                    tmapApi.findRoute();
 
-                    txtLatitude.setText(String.valueOf(latitude));
-                    txtLongitude.setText(String.valueOf(longitude));
+                    txtLatitude.setText(String.valueOf(startLatitude));
+                    txtLongitude.setText(String.valueOf(startLongitude));
 
                 } else {
                     gps.showSettingsAlert();
@@ -300,12 +350,23 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                                     mRecyclerView.smoothScrollToPosition(0);
                                 } else {
                                     mText.setText(text);
+                                    destination = text;
                                 }
                             }
                         });
                     }
                 }
             };
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+        // Add a marker in Sydney and move the camera
+        LatLng sydney = new LatLng(-34, 151);
+        mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        geocoder = new Geocoder(this);
+    }
 
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
@@ -409,10 +470,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         }
     }
 
-    private void findRoute(final double latitude, final double longitude) {
-
-        System.out.println("위도 : " + latitude);
-        System.out.println("경도 : " + longitude);
+    private void findRoute(final double startLatitude, final double startLongitude, final double desLatitude, final double desLongitude) {
 
         Thread thread = new Thread() {
             @Override
@@ -424,15 +482,17 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                             "&format=json" +
                             "&appKey=46517717-fc78-4a30-b3ec-72635f6a8119" +
                             "&startX=" +
-                            longitude +
+                            startLongitude +
                             "&startY=" +
-                            latitude +
+                            startLatitude +
                             "&angle=1" +
                             "&speed=3" +
                             "&endPoiId=334852" +
                             "&endRpFlag=8" +
-                            "&endX=126.961334" +
-                            "&endY=37.507797" +
+                            "&endX=" +
+                            desLongitude +
+                            "&endY=" +
+                            desLatitude +
 //                            "&passList=126.98506595175428,37.56674182109044,334857,16" +
                             "&reqCoordType=WGS84GEO" +
                             "&gpsTime=15000" +

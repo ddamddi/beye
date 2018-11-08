@@ -18,18 +18,18 @@ apply plugin: 'com.android.application'
 apply plugin: 'com.google.protobuf'
 
 ext {
-    supportLibraryVersion = '25.4.0'
+    supportLibraryVersion = '26.1.0'
     grpcVersion = '1.4.0'
 }
 
 android {
-    compileSdkVersion 25
+    compileSdkVersion 26
     buildToolsVersion '28.0.3'
     flavorDimensions "versionCode"
 
     defaultConfig {
         applicationId "com.google.cloud.android.speech"
-        targetSdkVersion 25
+        targetSdkVersion 26
         versionCode 1
         versionName '1.0'
     }
@@ -128,6 +128,8 @@ dependencies {
     androidTestImplementation 'com.android.support.test:runner:1.0.2'
     androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
     implementation files('libs/com.skt.Tmap_1.54.jar')
+    implementation 'com.google.android.gms:play-services-maps:15.0.1'
+    implementation 'com.google.android.gms:play-services-location:15.0.1'
 }
 
 task copySecretKey(type: Copy) {
@@ -138,4 +140,3 @@ task copySecretKey(type: Copy) {
     rename secretKey.getName(), "credential.json"
 }
 preBuild.dependsOn(copySecretKey)
-

@@ -22,12 +22,14 @@
     android:layout_height="match_parent"
     tools:context="com.google.cloud.android.speech.MainActivity">
 
+
     <android.support.design.widget.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorPrimary"
         android:theme="@style/ThemeOverlay.AppCompat.Dark">
+
 
         <TextView
             android:id="@+id/tv_longitude"
@@ -47,15 +49,36 @@
             android:layout_height="wrap_content"
             android:text="Button" />
 
+        <fragment
+            android:id="@+id/map"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            class="com.google.android.gms.maps.SupportMapFragment" />
+
+
+        <TextView
+            android:id="@+id/tv_longitude2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TextView" />
+
+        <TextView
+            android:id="@+id/tv_latitude2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TextView" />
+
         <android.support.v7.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="?attr/colorPrimary"
             android:paddingLeft="32dp"
-            android:paddingRight="32dp"/>
+            android:paddingRight="32dp" />
 
-        <include layout="@layout/item_result"/>
+
+
+        <include layout="@layout/item_result" />
 
     </android.support.design.widget.AppBarLayout>
 
