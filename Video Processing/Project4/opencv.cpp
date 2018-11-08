@@ -4,27 +4,22 @@
 #include <opencv2\imgproc\imgproc.hpp>
 #include <opencv2\video\video.hpp>
 #include <opencv2\core\core.hpp>
-#include <Windows.h>
+#include <math.h>
 #define resizeSize 2
 
 using namespace cv;
 using namespace std;
+int movcount = 0;
+int noisehandle = 0;
+int errorhandle = 0;
+int stairhandle = 0;
+int downhandle = 0;
+int savesky = 0;
+int skyhandle = 0;
+Mat savemov;
+bool saveset = false;
+bool downbit = false;
 
-
-void setLabel(Mat& image, string str, vector<Point> contour)
-{
-	int fontface = FONT_HERSHEY_SIMPLEX;
-	double scale = 0.5;
-	int thickness = 1;
-	int baseline = 0;
-
-	Size text = getTextSize(str, fontface, scale, thickness, &baseline);
-	Rect r = boundingRect(contour);
-
-	Point pt(r.x + ((r.width - text.width) / 2), r.y + ((r.height + text.height) / 2));
-	rectangle(image, pt + Point(0, baseline), pt + Point(text.width, -text.height), CV_RGB(200, 200, 200), CV_FILLED);
-	putText(image, str, pt, fontface, scale, CV_RGB(0, 0, 0), thickness, 8);
-}
 class WatershedSegmenter {
 private:
 	cv::Mat markers;
@@ -43,6 +38,7 @@ public:
 };
 
 int main() {
+	
 	//global variables
 	Mat origin;		// 원본
 	Mat resizeImage;	// 사이즈 조정
@@ -53,7 +49,6 @@ int main() {
 	Mat mophologyImage;
 	Mat thresholdImage;
 	Mat ContourImg;
-
 
 	Ptr< BackgroundSubtractor> pMOG2; //MOG2 Background subtractor
 
@@ -67,15 +62,12 @@ int main() {
 	Mat element3 = getStructuringElement(MORPH_RECT, Size(1, 1));
 
 	int countCar = 0;
-
 	//unconditional loop   
 	while (true) {
 
-		Sleep(100);
+
 		if (!(stream1.read(origin))) //get one frame form video   
 			break;
-		//cout << pos[0].getX() << " " << pos[0].getY() << pos[0].getWidth() << endl;
-		//line(origin, Point(pos[0].getX(), pos[0].getY()), Point(pos[0].getWidth(), pos[0].getHeight()), Scalar(255, 0, 0), 2);
 
 		// 이미지 size 조절
 		resize(origin, resizeImage, Size(origin.size().width / resizeSize, origin.size().height / resizeSize));
@@ -83,237 +75,186 @@ int main() {
 		/////////////////////////////////////////////////////////////////
 		//1단계 : 밝기 대조 조정
 		contrastImage = resizeImage.clone();
-		/*
-		float alpha = 1.2;
-		int beta = 0;
-		for (int y = 0; y < contrastImage.rows; y++) {
-			for (int x = 0; x < contrastImage.cols; x++) {
-				for (int c = 0; c < 3; c++) {
-					contrastImage.at<Vec3b>(y, x)[c] = saturate_cast<uchar>(alpha*(contrastImage.at<Vec3b>(y, x)[c]) + beta);
-				}
-			}
-		}
-		
-		float alpha2 = 0.9;
-		int beta2 = 1;
-		for (int i = 0; i < 3; i++) {
-			for (int y = 0; y < contrastImage.rows; y++) {
-				for (int x = 0; x < contrastImage.cols; x++) {
-					for (int c = 0; c < 3; c++) {
-						contrastImage.at<Vec3b>(y, x)[c] = saturate_cast<uchar>(alpha2*(contrastImage.at<Vec3b>(y, x)[c]) + beta2);
-					}
-				}
-			}
-		}
-		
-		alpha2 = 2;
-		for (int i = 0; i < 3; i++) {
-			for (int y = 0; y < contrastImage.rows; y++) {
-				for (int x = 0; x < contrastImage.cols; x++) {
-					for (int c = 0; c < 3; c++) {
-						contrastImage.at<Vec3b>(y, x)[c] = saturate_cast<uchar>(alpha2*(contrastImage.at<Vec3b>(y, x)[c]) + beta2);
-					}
-				}
-			}
-		}
-		*/
+
 		Mat sharpening;
 		GaussianBlur(contrastImage, sharpening, Size(0, 0), 3);
 		cv::addWeighted(contrastImage, 1.5, sharpening, -0.5, 0, sharpening);
 		imshow("1. sharpening", sharpening);
 		Mat gray;
 		cvtColor(sharpening, gray, CV_RGB2GRAY);
-		imshow("2. grayscale", gray);
+		//imshow("2. grayscale", gray);
+		Mat binary;
+		Mat binaryroad;
+		threshold(gray, binary, 15, 255, THRESH_BINARY);
+		threshold(gray, binaryroad, 127, 255, THRESH_BINARY);
+		dilate(binaryroad, binaryroad, Mat(), Point(1, 1), 1);
+
+		//imshow("binset", binaryroad);
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				binary.at<uchar>(y, x) = 255- binary.at<uchar>(y, x);
+			}
+		}
 		Mat edge;
+		Mat bincheck;
+		bincheck = gray.clone();
+		threshold(bincheck, bincheck, 100, 255, THRESH_BINARY);
+		Canny(bincheck, bincheck, 130, 210, 3);
+		threshold(bincheck, bincheck, 0, 255, CV_THRESH_BINARY_INV);
+		erode(bincheck, bincheck, Mat(), Point(1, 1), 1);
+		imshow("test edge", bincheck);
+		int downx = 0;
+		int downindex = 0;
+		int downy = 0;
+		int downsomethingy = contrastImage.rows;
+		bool countforfirst = false;
+		bool countformax = false;
+
+		for (int x = (contrastImage.cols / 5 * 2); x < (contrastImage.cols / 5 * 4); x++) {
+			for (int y = (contrastImage.rows / 5 * 3); y < contrastImage.rows; y++) {
+				if (bincheck.at<uchar>(y, x) == 0)
+				{
+					if (y < downsomethingy) {
+						downsomethingy = y;
+						countforfirst = true;
+					}
+					}
+			}
+			if (countforfirst) {
+				if (abs(downsomethingy - downy) < 4) {
+					countformax = true;
+					}
+				downy = downsomethingy;
+			}
+			if (countformax) {
+				downindex++;
+			}
+			downsomethingy = contrastImage.rows;
+			countformax = false;
+			countforfirst = false;
+		}
+		/*for (int y = (contrastImage.rows / 5 * 4); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5 * 2); x > 0; x--) {
+				if (bincheck.at<uchar>(y, x) == 255) {
+					if (x > downmar) {
+						downmar = x;
+					}
+				}
+
+			}
+		}
+		for (int y = (contrastImage.rows / 5 * 4); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5 * 2); x < contrastImage.cols; x++) {
+				if (bincheck.at<uchar>(y, x) == 255) {
+					if (x - downmar < downindex) {
+						downindex = x - downmar;
+						downmax = x;
+					}
+					if (downindex == 0) {
+						downindex = x - downmar;
+						downmax = x;
+					}
+				}
+			}
+		}
+		if (downindex > (downmar + 30)) {
+			downindex = downindex - 30;
+		}
+		if (downmar == 0 && downindex == 0) {
+			downmar = (contrastImage.cols / 5 * 2) - 75;
+			downindex = 150;
+		}*/
 		Canny(gray, edge, 130, 210, 3); // Canny 연산
 		threshold(edge, edge, 0, 255, CV_THRESH_BINARY_INV); // sobel 영상과 비교하려고 반전
-		imshow("Canny Image", edge);
-
-		/*
-		long tmp[2]; //처음인지 판별을 위한것
-		long tmp2[2]; // 처음인지 판별을 위한 것
-		long tmp3[2];
-		long leftdown[2];
-		long rightup[2];
-		uchar r, g, b;
-		for (int y = 0; y < edge.rows; ++y) {
-			Vec3b* Pixel = edge.ptr<Vec3b>(y);
-			for (int x = 0; x < edge.cols; ++x) {
-				r = Pixel[x][2];
-				g = Pixel[x][1];
-				b = Pixel[x][0];
-
-				if (r < 30 || g < 30 || b < 30) {
-					if (x>leftdown[0] && y>leftdown[1]) {
-						tmp[0] = x;
-						tmp[1] = y;
-					}
-					if (x - tmp[0] < 50) {
-						leftdown[0] = x;
-						leftdown[1] = y;
-					}
-				}
-
-			}
-		}
-		*/
-		/*
-		Mat img_result;
-		Mat binary_image;
-		threshold(edge, edge, 125, 255, THRESH_BINARY_INV | THRESH_OTSU);
-		
-		//contour를 찾는다.
-		vector<vector<Point> > contours;
-		findContours(edge, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
-
-		//contour를 근사화한다.
-		vector<Point2f> approx;
-		img_result = edge.clone();
-
-		for (size_t i = 0; i < contours.size(); i++)
-		{
-			approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*0.02, true);
-
-			if (fabs(contourArea(Mat(approx))) > 300)  //면적이 일정크기 이상이어야 한다. 
-			{
-
-				int size = approx.size();
-
-				//Contour를 근사화한 직선을 그린다.
-				if (size % 2 == 0) {
-					line(img_result, approx[0], approx[approx.size() - 1], Scalar(0, 255, 0), 3);
-
-					for (int k = 0; k < size - 1; k++)
-						line(img_result, approx[k], approx[k + 1], Scalar(0, 255, 0), 3);
-
-					for (int k = 0; k < size; k++)
-						circle(img_result, approx[k], 3, Scalar(0, 0, 255));
-				}
-				else {
-					line(img_result, approx[0], approx[approx.size() - 1], Scalar(0, 255, 0), 3);
-
-					for (int k = 0; k < size - 1; k++)
-						line(img_result, approx[k], approx[k + 1], Scalar(0, 255, 0), 3);
-
-					for (int k = 0; k < size; k++)
-						circle(img_result, approx[k], 3, Scalar(0, 0, 255));
-				}
-
-
-
-				//도형을 판정한다.
-
-				if (size == 4 && isContourConvex(Mat(approx)))
-					setLabel(img_result, "r", contours[i]); //사각형
-			}
-
-		}
-		imshow("사각형", img_result);
-		*/
-		/*
-		Mat sobelX, sobelY, sobel;
-		Sobel(sharpening, sobelX, CV_16S, 1, 0);
-		Sobel(sharpening, sobelY, CV_16S, 0, 1);
-		sobel = abs(sobelX) + abs(sobelY);    // L1 놈(norm) 계산
-
-		double sobmin, sobmax;
-		minMaxLoc(sobel, &sobmin, &sobmax); // sobel 최댓값 찾기
-
-		Mat sobelImage;
-		sobel.convertTo(sobelImage, CV_8U, -255. / sobmax, 255); // 8bit 영상으로 변환
-		imshow("Sobel Image", sobelImage);
-
-		// sobel 낮은 경계 값
-		Mat sobelThresholded;
-		threshold(sobelImage, sobelThresholded, 210, 255, THRESH_BINARY);
-		imshow("sobel 낮은 경계 값", sobelThresholded);
-		//rgb조정 함수
-		*/
-		/*
-		Mat temp = resizeF.clone();
-		for (int y = 0; y < temp.rows; y++) {
-		Vec3b* pixel = temp.ptr<Vec3b>(y);
-		for (int x = 0; x < temp.cols; x++) {
-		if (pixel[x][0] > 150) {
-		pixel[x][2] = 255;
-		pixel[x][1] = 0;
-		pixel[x][0] = 0;
-		}
-		else {
-		pixel[x][2] = 0;
-		pixel[x][1] = 0;
-		pixel[x][0] = 0;
-		}
-		}
-		}
-		gray_Image = temp;
-		//cvtColor(resizeF, gray_Image, CV_RGB2GRAY);
-		threshold(gray_Image, gray_Image, 128, 255, THRESH_BINARY);
-		dilate(gray_Image, gray_Image, element2, Point(-1, -1), 1);
-
-		imshow("1. gray", gray_Image);
-
-		*/
+		//imshow("Canny Image", edge);
 
 		/////////////////////////////////////////////////////////////////
 		//2단계 : 블러 처리 -> 인식되는 범위를 늘려줌
-		blur(sharpening, blurImage, Size(5, 5));
+		blur(sharpening, blurImage, Size(3, 3));
 		//medianBlur(resizeF, resizeF, 5);
 		//GaussianBlur(resizeF, resizeF, Size(5, 5), 1.5);
 
 
 		/////////////////////////////////////////////////////////////////
 		//3단계 : MOG2 적용 -> 배경 제거
-		pMOG2->apply(contrastImage, MOG2Image);
-		imshow("2. blur + MOG2", MOG2Image);
+		//pMOG2->apply(blurImage, MOG2Image);
+		//imshow("2. blur + MOG2", MOG2Image);
 		Mat closing;
-		morphologyEx(blurImage,closing ,MORPH_CLOSE, element);
-		imshow("4. closing", closing);
-	
-		SimpleBlobDetector::Params params;
+		morphologyEx(blurImage, closing, MORPH_CLOSE, element);
+		Mat forstair;
+		cvtColor(closing, forstair, CV_RGB2GRAY);
+		threshold(forstair, forstair, 230, 255, THRESH_BINARY);
+		erode(forstair, forstair, Mat(), Point(1, 1), 5);
+		imshow("되라", forstair);
+		//imshow("4. closing", closing);
+		Mat labeling;
+		Mat magic = edge.clone();
+		int height = magic.size().height;
+		int width = magic.size().width;
+		erode(edge, labeling, Mat(), Point(1, 1), 1);
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+					if ((binary.at<uchar>(y, x) - labeling.at<uchar>(y, x)) > (150)) {
+						magic.at<uchar>(y, x) = (binary.at<uchar>(y, x) - labeling.at<uchar>(y, x));
+					}
+					else
+						magic.at<uchar>(y, x) = 0;
+			}
+		}
+		Mat magic4;
+		Mat magic2 = edge.clone();
+		//erode(magic, magic, Mat(), Point(1, 1), 1);
+		//dilate(magic, magic, Mat(), Point(1, 1), 1);
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				if ((magic.at<uchar>(y, x) - labeling.at<uchar>(y, x)) >(200)) {
+					magic2.at<uchar>(y, x) = (magic.at<uchar>(y, x) - labeling.at<uchar>(y, x));
+				}
+				else
+					magic2.at<uchar>(y, x) = 0;
+			}
+		}
+		dilate(magic2, magic2, Mat(), Point(1, 1), 1);
+		imshow("blob", magic2);
+		int xmar = 0;
+		int marindex = 0;
+		int xmax=0;
+		for (int y = (contrastImage.rows/6*5); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5*2); x > 0; x--) {
+				if (magic2.at<uchar>(y, x) == 255) {
+					if (x > xmar) {
+						xmar = x;
+					}
+				}
 
-		// Change thresholds
-		params.minThreshold = 10;
-		params.maxThreshold = 300;
-
-		// Filter by Area.
-		params.filterByArea = true;
-		params.minArea = 1500;
-
-		// Filter by Circularity
-		params.filterByCircularity = true;
-		params.minCircularity = 0.1;
-
-		// Filter by Convexity
-		params.filterByConvexity = true;
-		params.minConvexity = 0.87;
-
-		// Filter by Inertia
-		params.filterByInertia = true;
-		params.minInertiaRatio = 0.01;
-
-
-		// Storage for blobs
-		vector<KeyPoint> keypoints;
-
-		// Set up detector with params
-		Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
-
-		// Detect blobs
-		detector->detect(MOG2Image, keypoints);
-		Mat blobImage;
-		drawKeypoints(MOG2Image, keypoints, blobImage, Scalar(0, 0, 255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-
-		// Show blobs
-
-		imshow("Blobs", MOG2Image);
-
-
+			}
+		}
+		for (int y = (contrastImage.rows/6*5); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5*2); x < contrastImage.cols; x++) {
+				if (magic2.at<uchar>(y, x) == 255) {
+					if (x-xmar < marindex) {
+						marindex = x-xmar;
+						xmax = x;
+					}
+					if (marindex == 0) {
+						marindex = x - xmar;
+						xmax = x;
+					}
+				}
+			}
+		}
+		if (marindex > (xmar+30)) {
+			marindex = marindex-30;
+		}
+		if (xmar == 0 || marindex == 0) {
+			xmar = (contrastImage.cols / 5 * 2) - 75;
+			marindex = 150;
+		}
 		cv::Mat blank(closing.size(), CV_8U, cv::Scalar(0xFF));
 		cv::Mat dest;
 
 		// Create markers image
-		cv::Mat markers(closing.size(), CV_8U, cv::Scalar(-1));
+		Mat markers(closing.size(), CV_8U, cv::Scalar(-1));
 		//Rect(topleftcornerX, topleftcornerY, width, height);
 		//top rectangle
 		markers(Rect(0, 0, closing.cols, 5)) = Scalar::all(1);
@@ -326,26 +267,232 @@ int main() {
 		//centre rectangle
 		int centreW = closing.cols / 2;
 		int centreH = closing.rows / 4;
-		markers(Rect(centreW/2-80, closing.rows-20 ,centreW, 20)) = Scalar::all(2);
+		markers(Rect(xmar, closing.rows/6*5, marindex, closing.rows / 6)) = Scalar::all(2);
 		markers.convertTo(markers, CV_BGR2GRAY);
 		imshow("markers", markers);
-
 		//Create watershed segmentation object
 		WatershedSegmenter segmenter;
 		segmenter.setMarkers(markers);
 		cv::Mat wshedMask = segmenter.process(closing);
 		cv::Mat mask;
 		Mat eroding;
+
 		convertScaleAbs(wshedMask, mask, 1, 0);
 		double thresh = threshold(mask, mask, 1, 255, THRESH_BINARY);
 		erode(closing, eroding, Mat(), Point(1, 1), 1);
+		//imshow("label", labeling);
+
+
+		// Uncomment the line below to select a different bounding box 
+		// bbox = selectROI(frame, false); 
+		// Display bounding box. 
 		//imshow("erode", eroding);
-		
 		bitwise_and(closing, eroding, dest, mask);
 		dest.convertTo(dest, CV_8U);
+		imshow("final_result", dest);
+		Mat something;
+		cvtColor(dest, something, CV_RGB2GRAY);
+		Mat hard;
+		hard = magic2.clone();
+		int count =0;
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				if (something.at<uchar>(y, x) ==0) {
+					magic2.at<uchar>(y, x) = 0;
+				}
+			}
+		}
+		int countmax = contrastImage.cols/4*2 - contrastImage.rows/5*2;
+		int k = 0;
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				k =	abs(contrastImage.rows - y);
+				if (x < (contrastImage.cols/4) +k/2) {
+					hard.at<uchar>(y, x) = 0;
+				}
+				else if (x > (contrastImage.cols/4 * 3) -k/2) {
+					hard.at<uchar>(y, x) = 0;
+				}
+				else if (y < contrastImage.rows / 5 *3) {
+					hard.at<uchar>(y, x) = 0;
+				}
+				if (y == (contrastImage.rows / 5 * 3) - 1) {
 
-		//imshow("final_result", dest);
-		
+				}
+			}
+		}		
+		Mat calculatemov;
+		calculatemov = closing.clone();
+		int tmpmov=0;
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				if (hard.at < uchar>(y, x) != 0) {
+					count++;
+					tmpmov = tmpmov + y + abs(x-contrastImage.cols/2);
+				}
+				else {
+					calculatemov.at<Vec3b>(y, x)[0] = 0;
+					calculatemov.at<Vec3b>(y, x)[1] = 0;
+					calculatemov.at<Vec3b>(y, x)[2] = 0;
+				}
+			}
+		}
+		int movcounter = 0;
+		if (saveset) {
+			for (int y = 0; y < contrastImage.rows; y++) {
+				for (int x = 0; x < contrastImage.cols; x++) {
+					if (savemov.at<uchar>(y, x) != 0) {
+						calculatemov.at<Vec3b>(y, x)[0] = 0;
+						calculatemov.at<Vec3b>(y, x)[1] = 0;
+						calculatemov.at<Vec3b>(y, x)[2] = 0;
+					}
+					//else if (calculatemov.at<Vec3b>(y, x)[0] != 0 || calculatemov.at<Vec3b>(y, x)[1] != 0 || calculatemov.at<Vec3b>(y, x)[2] != 0) {
+						//movcounter++;
+					//}
+				}
+			}
+			if (count != 0) {
+				tmpmov = (tmpmov / count) * 5;
+			}
+			movcounter = tmpmov;
+		}
+		else if (count != 0) {
+			tmpmov = (tmpmov / count) * 5;
+		}
+		cvtColor(calculatemov, savemov, CV_RGB2GRAY);
+		saveset = true;
+		//imshow("test", calculatemov);
+		if (count > 100) {
+			errorhandle++;
+		}
+		else if (errorhandle > 5) {
+			errorhandle = 5;
+		}
+		else if(errorhandle>0){
+			errorhandle--;
+		}
+
+		if (errorhandle > 3) {
+			if (movcount != 0 && count > 100) {
+				if (movcounter > tmpmov * 2 ) {
+					if (downhandle > 5) {
+						if (count < 100) {
+							cout << "다가오는장애물" << endl;
+						}
+					}
+					else {
+						cout << "다가오는장애물" << endl;
+					}
+				}
+				else {
+					if (downhandle > 5) {
+						if (count < 100) {
+							cout << "장애물" << endl;
+						}
+					}
+					else {
+						cout << "장애물" << endl;
+					}
+				}
+			}
+			else if (count > 100) {
+				cout << "장애물" << endl;
+			}
+		}
+		movcounter = 0;
+		movcount = tmpmov;
+		int cross=0;
+		bool largestbit = false;
+		for (int y = 0; y < contrastImage.rows; y++) {
+			for (int x = 0; x < contrastImage.cols; x++) {
+				if (something.at<uchar>(y, x) != 0) {
+					if (!largestbit) {
+						cross = y;
+						largestbit = true;
+					}
+				}
+			}
+		}
+		if (cross > contrastImage.rows / 5*3 ) {
+			noisehandle++;
+		}
+		else if (noisehandle > 7) {
+			noisehandle = 7;
+		}
+		else if(noisehandle>0){
+			noisehandle--;
+		}
+		if (noisehandle > 7) {
+				cout << "횡단보도" << endl;
+		}
+		int downstair=0;
+		int countforstair = 0;
+		for (int y = 1; y < contrastImage.rows; y++) {
+			int x = contrastImage.cols / 2;
+			if (binaryroad.at<uchar>(y, x) == 255 && binaryroad.at<uchar>(y - 1, x) != 255) {
+				countforstair++;
+			}
+		}
+		int sky = 0;
+		for (int x = 0; x < contrastImage.cols; x++) {
+			for (int y = 0; y < contrastImage.rows; y++) {
+				if (forstair.at<uchar>(y, x) != 0) {
+					sky++;
+				}
+			}
+		}
+		if (savesky == 0) {
+			savesky = sky;
+		}
+		else if (sky+30<savesky){
+			skyhandle++;
+		}
+		else if (savesky > 7) {
+			skyhandle = 7;
+		}
+		else if (savesky > 0) {
+			skyhandle --;
+		}
+		savesky = sky;
+		if (countforstair > 4) {
+			stairhandle++;
+		}
+		else if (stairhandle>4) {
+			stairhandle = 4;
+		}
+		else if (stairhandle>0) {
+			stairhandle--;
+		}
+		if (downindex > 120 && errorhandle<5) {
+			downhandle++;
+		}
+		else if (downhandle > 10) {
+			downhandle = 10;
+		}
+		else if (downhandle>0){
+			downhandle--;
+		}
+		if (stairhandle > 4 && noisehandle < 1 && errorhandle <5 && downbit == false&&downhandle>0) {
+			cout << "상향계단" << endl;
+		}
+		else if (downhandle > 10 && stairhandle<4) {
+			noisehandle = 0;
+			downbit = true;
+			cout << "하향계단" << endl;
+		}
+		else if (downbit) {
+			cout << "하향계단" << endl;
+			if (downhandle>5) {
+				cout << "하향계단" << endl;
+			}
+			else if (skyhandle>5) {
+				downbit = false;
+				cout << "하향계단 끝" << endl;
+			}
+		}
+		imshow("..", hard);
+		//imshow("gray", something);
+		//imshow("calculated", magic2);
 
 		if (waitKey(30) >= 0)
 			break;
