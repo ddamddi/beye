@@ -17,10 +17,14 @@
 package com.google.cloud.android.speech;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.app.FragmentManager;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
+
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
@@ -30,6 +34,7 @@ import android.location.Geocoder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.speech.tts.TextToSpeech;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.res.ResourcesCompat;
@@ -68,9 +73,11 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 
-public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback{
+public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback, TextToSpeech.OnInitListener {
 
     private static final String FRAGMENT_MESSAGE_DIALOG = "message_dialog";
 
@@ -79,6 +86,10 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 1;
 
+    int mPairedDeviceCount;
+    Set<BluetoothDevice> mDevices;
+
+    private TextToSpeech tts;
 
     private Button btnShowLocation;
     private TextView txtLatitude;
@@ -165,26 +176,64 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         mapFragment.getMapAsync(this);
 
         BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if(mBluetoothAdapter == null) {
+
+        if (mBluetoothAdapter == null) {
             //장치가 블루투스를 지원하지 않는 경우.
             finish();   // 어플리케이션 종료
-        }
-
-        else {
+        } else {
             // 장치가 블루투스를 지원하는 경우.
-            if(!mBluetoothAdapter.isEnabled()) {
+            if (!mBluetoothAdapter.isEnabled()) {
                 // 블루투스를 지원하지만 비활성 상태인 경우
                 // 블루투스를 활성 상태로 바꾸기 위해 사용자 동의 요첨
                 Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                 startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-            }
-
-            else {
+            } else {
                 // 블루투스를 지원하며 활성 상태인 경우
                 // 페어링된 기기 목록을 보여주고 연결할 장치를 선택.
+                mDevices = mBluetoothAdapter.getBondedDevices();
+                mPairedDeviceCount = mDevices.size();
+
+                if (mPairedDeviceCount == 0) {
+                    //  페어링 된 장치가 없는 경우
+                    finish();    // 어플리케이션 종료
+                }
+
+                AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                builder.setTitle("블루투스 장치 선택");
+
+
+                // 페어링 된 블루투스 장치의 이름 목록 작성
+                List<String> listItems = new ArrayList<String>();
+                for (BluetoothDevice device : mDevices) {
+                    listItems.add(device.toString());
+                }
+                listItems.add("취소");    // 취소 항목 추가
+
+                final CharSequence[] items = listItems.toArray(new CharSequence[listItems.size()]);
+
+//                    builder.setItems(new DialogInterface.OnClickListener() {
+//                        public void onClick(DialogInterface dialog, int item) {
+//                            if (item == mPairedDeviceCount) {
+//                                // 연결할 장치를 선택하지 않고 '취소'를 누른 경우
+//                                finish();
+//                            } else {
+//                                // 연결할 장치를 선택한 경우
+//                                // 선택한 장치와 연결을 시도함
+//                                connectToSelectedDevices(items[item].toString());
+//                            }
+//                        }
+//                    });
+
+
+//                builder.setCancelable(false);    // 뒤로 가기 버튼 사용 금지
+                AlertDialog alert = builder.create();
+                alert.show();
+
+
             }
         }
 
+        tts = new TextToSpeech(this, this);
 
         btnShowLocation = (Button) findViewById(R.id.btn_start);
         txtLatitude = (TextView) findViewById(R.id.tv_latitude);
@@ -257,6 +306,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
         callPermission();
     }
+
 
     @Override
     protected void onStart() {
@@ -387,6 +437,45 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         geocoder = new Geocoder(this);
     }
 
+    @Override
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+
+            // 작업 성공
+
+
+
+            int language = tts.setLanguage(Locale.KOREAN);  // 언어 설정
+
+            if (language == TextToSpeech.LANG_MISSING_DATA
+
+                    || language == TextToSpeech.LANG_NOT_SUPPORTED) {
+
+                // 언어 데이터가 없거나, 지원하지 않는경우
+
+                //btn_speech.setEnabled(false);
+
+                Toast.makeText(this, "지원하지 않는 언어입니다.", Toast.LENGTH_SHORT).show();
+
+            } else {
+
+                // 준비 완료
+
+                //btn_speech.setEnabled(true);
+
+            }
+
+
+
+        } else {
+
+            // 작업 실패
+
+            Toast.makeText(this, "TTS 작업에 실패하였습니다.", Toast.LENGTH_SHORT).show();
+
+        }
+    }
+
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
         TextView text;
@@ -443,7 +532,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
             isAccessFineLocation = true;
 
         } else if (requestCode == PERMISSIONS_ACCESS_COARSE_LOCATION
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 
             isAccessCoarseLocation = true;
         }
@@ -457,8 +546,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 isAccessFineLocation = true;
                 startVoiceRecorder();
-            }
-            else {
+            } else {
                 showPermissionMessageDialog();
             }
         } else {
@@ -479,7 +567,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED){
+                != PackageManager.PERMISSION_GRANTED) {
 
             requestPermissions(
                     new String[]{Manifest.permission.ACCESS_COARSE_LOCATION},
@@ -538,11 +626,23 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
                     JSONObject jAr = new JSONObject(sb.toString());
                     JSONArray features = jAr.getJSONArray("features");
+
+
+                    String ttsText = null;
+
+
                     for (int i = 0; i < features.length(); i++) {
                         JSONObject test = features.getJSONObject(i);
                         JSONObject properties = test.getJSONObject("properties");
+                        if(i == 0) {
+                            ttsText  = properties.getString("description");
+                        }
                         System.out.println(properties.getString("description"));
                     }
+
+                    tts.setPitch((float) 0.1);
+                    tts.setSpeechRate((float) 1.0);
+                    tts.speak(ttsText, TextToSpeech.QUEUE_FLUSH, null);
 
 
                 } catch (MalformedURLException e) {
@@ -556,5 +656,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         };
         thread.start();
     }
+
 
 }
