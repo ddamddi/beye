@@ -31,23 +31,11 @@
         android:theme="@style/ThemeOverlay.AppCompat.Dark">
 
 
-        <TextView
-            android:id="@+id/tv_longitude"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="TextView" />
-
-        <TextView
-            android:id="@+id/tv_latitude"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="TextView" />
-
         <Button
             android:id="@+id/btn_start"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Button" />
+            android:text="길찾기시작" />
 
         <fragment
             android:id="@+id/map"
@@ -55,18 +43,6 @@
             android:layout_height="match_parent"
             class="com.google.android.gms.maps.SupportMapFragment" />
 
-
-        <TextView
-            android:id="@+id/tv_longitude2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="TextView" />
-
-        <TextView
-            android:id="@+id/tv_latitude2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="TextView" />
 
         <android.support.v7.widget.Toolbar
             android:id="@+id/toolbar"
@@ -77,6 +53,11 @@
             android:paddingRight="32dp" />
 
 
+        <ToggleButton
+            android:id="@+id/toggleButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ToggleButton" />
 
         <include layout="@layout/item_result" />
 

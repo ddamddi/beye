@@ -18,13 +18,9 @@ package com.google.cloud.android.speech;
 
 import android.Manifest;
 import android.app.AlertDialog;
-import android.app.FragmentManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
-import android.content.Context;
-
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
@@ -34,7 +30,6 @@ import android.location.Geocoder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.speech.tts.TextToSpeech;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.res.ResourcesCompat;
@@ -49,56 +44,34 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.TextView;
-import android.widget.Toast;
-
+import android.widget.ToggleButton;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
-import com.google.android.gms.maps.MapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 
-public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback, TextToSpeech.OnInitListener {
-
-    private static final String FRAGMENT_MESSAGE_DIALOG = "message_dialog";
+public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback {
 
 
-    private static final String STATE_RESULTS = "results";
-
-    private static final int REQUEST_RECORD_AUDIO_PERMISSION = 1;
 
     int mPairedDeviceCount;
     Set<BluetoothDevice> mDevices;
 
-    private TextToSpeech tts;
 
-    private Button btnShowLocation;
-    private TextView txtLatitude;
-    private TextView txtLongitude;
-    private TextView txtLatitude2;
-    private TextView txtLongitude2;
-    private boolean isAccessFineLocation = false;
-    private boolean isAccessCoarseLocation = false;
-    private boolean isPermission = false;
+
+
+
+
     private GpsInfo gps;
     private GoogleMap mMap;
     private Geocoder geocoder;
@@ -107,10 +80,16 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
     private final int PERMISSIONS_ACCESS_FINE_LOCATION = 1000;
     private final int PERMISSIONS_ACCESS_COARSE_LOCATION = 1001;
     private final int REQUEST_ENABLE_BT = 1;
+    private static final String FRAGMENT_MESSAGE_DIALOG = "message_dialog";
+    private static final String STATE_RESULTS = "results";
+    private static final int REQUEST_RECORD_AUDIO_PERMISSION = 1;
+    private boolean isAccessFineLocation = false;
+    private boolean isAccessCoarseLocation = false;
+    private boolean isPermission = false;
 
     private SpeechService mSpeechService;
-
     private VoiceRecorder mVoiceRecorder;
+
     private final VoiceRecorder.Callback mVoiceCallback = new VoiceRecorder.Callback() {
 
         @Override
@@ -137,17 +116,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         }
 
     };
-
-    // Resource caches
-    private int mColorHearing;
-    private int mColorNotHearing;
-
-    // View references
-    private TextView mStatus;
-    private TextView mText;
-    private ResultAdapter mAdapter;
-    private RecyclerView mRecyclerView;
-
     private final ServiceConnection mServiceConnection = new ServiceConnection() {
 
         @Override
@@ -164,11 +132,24 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
     };
 
+    // Resource caches
+    private int mColorHearing;
+    private int mColorNotHearing;
+
+    // View references
+    private Button btnShowLocation;
+    private ToggleButton btnVoice;
+    private TextView mStatus;
+    private TextView mText;
+    private ResultAdapter mAdapter;
+    private RecyclerView mRecyclerView;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
 
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
@@ -233,14 +214,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
             }
         }
 
-        tts = new TextToSpeech(this, this);
 
-        btnShowLocation = (Button) findViewById(R.id.btn_start);
-        txtLatitude = (TextView) findViewById(R.id.tv_latitude);
-        txtLongitude = (TextView) findViewById(R.id.tv_longitude);
-
-        txtLatitude2 = (TextView) findViewById(R.id.tv_latitude2);
-        txtLongitude2 = (TextView) findViewById(R.id.tv_longitude2);
 
 
         final Resources resources = getResources();
@@ -251,6 +225,8 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
         mStatus = (TextView) findViewById(R.id.status);
         mText = (TextView) findViewById(R.id.text);
+        btnShowLocation = (Button) findViewById(R.id.btn_start);
+        btnVoice = (ToggleButton) findViewById(R.id.toggleButton);
 
         mRecyclerView = (RecyclerView) findViewById(R.id.recycler_view);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
@@ -258,6 +234,8 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                 savedInstanceState.getStringArrayList(STATE_RESULTS);
         mAdapter = new ResultAdapter(results);
         mRecyclerView.setAdapter(mAdapter);
+
+
 
         btnShowLocation.setOnClickListener(new View.OnClickListener() {
             public void onClick(View arg0) {
@@ -267,21 +245,22 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                 double desLatitude;
                 double desLongitude;
 
+                Thread findRouteThread = new FindRouter(getApplicationContext());
+
                 List<Address> addressList = null;
+
                 try {
                     addressList = geocoder.getFromLocationName(destination, 10);
                 } catch (IOException e) {
-                    e.printStackTrace();
+
                 }
                 String[] splitStr = addressList.get(0).toString().split(",");
                 String address = splitStr[0].substring(splitStr[0].indexOf("\"") + 1, splitStr[0].length() - 2);
                 desLatitude = Double.valueOf(splitStr[10].substring(splitStr[10].indexOf("=") + 1));
                 desLongitude = Double.valueOf(splitStr[12].substring(splitStr[12].indexOf("=") + 1));
 
-                txtLatitude2.setText(String.valueOf(desLatitude));
-                txtLongitude2.setText(String.valueOf(desLongitude));
-
-                Toast.makeText(getApplication(), String.valueOf(desLatitude) + String.valueOf(desLongitude), Toast.LENGTH_LONG).show();
+                ((FindRouter)findRouteThread).setDesLatitude(desLatitude);
+                ((FindRouter)findRouteThread).setDesLongitude(desLongitude);
 
                 if (!isPermission) {
                     callPermission();
@@ -293,10 +272,11 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
 
                     startLatitude = gps.getLatitude();
                     startLongitude = gps.getLongitude();
-                    findRoute(startLatitude, startLongitude, desLatitude, desLongitude);
+                    ((FindRouter)findRouteThread).setStartLatitude(startLatitude);
+                    ((FindRouter)findRouteThread).setStartLongitude(startLongitude);
 
-                    txtLatitude.setText(String.valueOf(startLatitude));
-                    txtLongitude.setText(String.valueOf(startLongitude));
+                    findRouteThread.start();
+
 
                 } else {
                     gps.showSettingsAlert();
@@ -318,7 +298,17 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         // Start listening to voices
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED) {
-            startVoiceRecorder();
+            btnVoice.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if(isChecked == true) {
+                        startVoiceRecorder();
+                    }
+                    else {
+                        stopVoiceRecorder();
+                    }
+                }
+            });
         } else if (ActivityCompat.shouldShowRequestPermissionRationale(this,
                 Manifest.permission.RECORD_AUDIO)) {
             showPermissionMessageDialog();
@@ -353,17 +343,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.main, menu);
         return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.action_file:
-                mSpeechService.recognizeInputStream(getResources().openRawResource(R.raw.audio));
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
-        }
     }
 
     private void startVoiceRecorder() {
@@ -437,44 +416,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         geocoder = new Geocoder(this);
     }
 
-    @Override
-    public void onInit(int status) {
-        if (status == TextToSpeech.SUCCESS) {
-
-            // 작업 성공
-
-
-
-            int language = tts.setLanguage(Locale.KOREAN);  // 언어 설정
-
-            if (language == TextToSpeech.LANG_MISSING_DATA
-
-                    || language == TextToSpeech.LANG_NOT_SUPPORTED) {
-
-                // 언어 데이터가 없거나, 지원하지 않는경우
-
-                //btn_speech.setEnabled(false);
-
-                Toast.makeText(this, "지원하지 않는 언어입니다.", Toast.LENGTH_SHORT).show();
-
-            } else {
-
-                // 준비 완료
-
-                //btn_speech.setEnabled(true);
-
-            }
-
-
-
-        } else {
-
-            // 작업 실패
-
-            Toast.makeText(this, "TTS 작업에 실패하였습니다.", Toast.LENGTH_SHORT).show();
-
-        }
-    }
 
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
@@ -576,86 +517,4 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
             isPermission = true;
         }
     }
-
-    private void findRoute(final double startLatitude, final double startLongitude, final double desLatitude, final double desLongitude) {
-
-        Thread thread = new Thread() {
-            @Override
-            public void run() {
-                HttpURLConnection conn = null;
-
-                try {
-                    URL url = new URL("https://api2.sktelecom.com/tmap/routes/pedestrian?version=1" +
-                            "&format=json" +
-                            "&appKey=46517717-fc78-4a30-b3ec-72635f6a8119" +
-                            "&startX=" +
-                            startLongitude +
-                            "&startY=" +
-                            startLatitude +
-                            "&angle=1" +
-                            "&speed=3" +
-                            "&endPoiId=334852" +
-                            "&endRpFlag=8" +
-                            "&endX=" +
-                            desLongitude +
-                            "&endY=" +
-                            desLatitude +
-//                            "&passList=126.98506595175428,37.56674182109044,334857,16" +
-                            "&reqCoordType=WGS84GEO" +
-                            "&gpsTime=15000" +
-                            "&startName=%EC%B6%9C%EB%B0%9C" +
-                            "&endName=%EB%B3%B8%EC%82%AC" +
-                            "&searchOption=0" +
-                            "&resCoordType=WGS84GEO");
-
-                    conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setDoInput(true);
-                    conn.setDoOutput(true);
-                    conn.setConnectTimeout(60);
-
-                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
-                    StringBuilder sb = new StringBuilder();
-                    String line = null;
-                    while ((line = br.readLine()) != null) {
-                        if (sb.length() > 0) {
-                            sb.append("\n");
-                        }
-                        sb.append(line);
-                    }
-
-                    JSONObject jAr = new JSONObject(sb.toString());
-                    JSONArray features = jAr.getJSONArray("features");
-
-
-                    String ttsText = null;
-
-
-                    for (int i = 0; i < features.length(); i++) {
-                        JSONObject test = features.getJSONObject(i);
-                        JSONObject properties = test.getJSONObject("properties");
-                        if(i == 0) {
-                            ttsText  = properties.getString("description");
-                        }
-                        System.out.println(properties.getString("description"));
-                    }
-
-                    tts.setPitch((float) 0.1);
-                    tts.setSpeechRate((float) 1.0);
-                    tts.speak(ttsText, TextToSpeech.QUEUE_FLUSH, null);
-
-
-                } catch (MalformedURLException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-            }
-        };
-        thread.start();
-    }
-
-
 }
