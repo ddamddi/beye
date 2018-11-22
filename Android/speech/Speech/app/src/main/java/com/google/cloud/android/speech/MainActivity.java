@@ -20,13 +20,16 @@ import android.Manifest;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothSocket;
 import android.content.ComponentName;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.location.Address;
 import android.location.Geocoder;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -38,14 +41,19 @@ import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.Toolbar;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.ToggleButton;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -55,37 +63,37 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.UUID;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 
 public class MainActivity extends AppCompatActivity implements MessageDialogFragment.Listener, OnMapReadyCallback {
 
 
-
-    int mPairedDeviceCount;
-    Set<BluetoothDevice> mDevices;
-
-
-
-
-
-
-    private GpsInfo gps;
     private GoogleMap mMap;
     private Geocoder geocoder;
     private String destination;
+    private List<Address> addressList = null;
+    private TimerTask findRouteThread;
+    private GpsInfo gps;
+    private boolean isPermission = false;
 
     private final int PERMISSIONS_ACCESS_FINE_LOCATION = 1000;
     private final int PERMISSIONS_ACCESS_COARSE_LOCATION = 1001;
-    private final int REQUEST_ENABLE_BT = 1;
     private static final String FRAGMENT_MESSAGE_DIALOG = "message_dialog";
     private static final String STATE_RESULTS = "results";
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 1;
     private boolean isAccessFineLocation = false;
     private boolean isAccessCoarseLocation = false;
-    private boolean isPermission = false;
+
 
     private SpeechService mSpeechService;
     private VoiceRecorder mVoiceRecorder;
@@ -144,6 +152,25 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
     private ResultAdapter mAdapter;
     private RecyclerView mRecyclerView;
 
+    //
+    private double startLatitude;
+    private double startLongitude;
+    private double desLatitude;
+    private double desLongitude;
+
+    // Bluetooth
+    private final int REQUEST_BLUETOOTH_ENABLE = 100;
+
+    private TextView mConnectionStatus;
+    private EditText mInputEditText;
+
+    ConnectedTask mConnectedTask = null;
+    static BluetoothAdapter mBluetoothAdapter;
+    private String mConnectedDeviceName = null;
+    private ArrayAdapter<String> mConversationArrayAdapter;
+    static boolean isConnectionError = false;
+    private static final String TAG = "BluetoothClient";
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -156,67 +183,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
-        BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
-        if (mBluetoothAdapter == null) {
-            //장치가 블루투스를 지원하지 않는 경우.
-            finish();   // 어플리케이션 종료
-        } else {
-            // 장치가 블루투스를 지원하는 경우.
-            if (!mBluetoothAdapter.isEnabled()) {
-                // 블루투스를 지원하지만 비활성 상태인 경우
-                // 블루투스를 활성 상태로 바꾸기 위해 사용자 동의 요첨
-                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-            } else {
-                // 블루투스를 지원하며 활성 상태인 경우
-                // 페어링된 기기 목록을 보여주고 연결할 장치를 선택.
-                mDevices = mBluetoothAdapter.getBondedDevices();
-                mPairedDeviceCount = mDevices.size();
-
-                if (mPairedDeviceCount == 0) {
-                    //  페어링 된 장치가 없는 경우
-                    finish();    // 어플리케이션 종료
-                }
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle("블루투스 장치 선택");
-
-
-                // 페어링 된 블루투스 장치의 이름 목록 작성
-                List<String> listItems = new ArrayList<String>();
-                for (BluetoothDevice device : mDevices) {
-                    listItems.add(device.toString());
-                }
-                listItems.add("취소");    // 취소 항목 추가
-
-                final CharSequence[] items = listItems.toArray(new CharSequence[listItems.size()]);
-
-//                    builder.setItems(new DialogInterface.OnClickListener() {
-//                        public void onClick(DialogInterface dialog, int item) {
-//                            if (item == mPairedDeviceCount) {
-//                                // 연결할 장치를 선택하지 않고 '취소'를 누른 경우
-//                                finish();
-//                            } else {
-//                                // 연결할 장치를 선택한 경우
-//                                // 선택한 장치와 연결을 시도함
-//                                connectToSelectedDevices(items[item].toString());
-//                            }
-//                        }
-//                    });
-
-
-//                builder.setCancelable(false);    // 뒤로 가기 버튼 사용 금지
-                AlertDialog alert = builder.create();
-                alert.show();
-
-
-            }
-        }
-
-
-
-
         final Resources resources = getResources();
         final Resources.Theme theme = getTheme();
         mColorHearing = ResourcesCompat.getColor(resources, R.color.status_hearing, theme);
@@ -228,65 +194,72 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         btnShowLocation = (Button) findViewById(R.id.btn_start);
         btnVoice = (ToggleButton) findViewById(R.id.toggleButton);
 
-        mRecyclerView = (RecyclerView) findViewById(R.id.recycler_view);
-        mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        //mRecyclerView = (RecyclerView) findViewById(R.id.recycler_view);
+        //mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         final ArrayList<String> results = savedInstanceState == null ? null :
                 savedInstanceState.getStringArrayList(STATE_RESULTS);
         mAdapter = new ResultAdapter(results);
-        mRecyclerView.setAdapter(mAdapter);
+        //mRecyclerView.setAdapter(mAdapter);
 
 
+//        Button sendButton = (Button)findViewById(R.id.send_button);
+//        sendButton.setOnClickListener(new View.OnClickListener(){
+//            public void onClick(View v){
+//                String sendMessage = mInputEditText.getText().toString();
+//                if ( sendMessage.length() > 0 ) {
+//                    sendMessage(sendMessage);
+//                }
+//            }
+//        });
+//        mConnectionStatus = (TextView)findViewById(R.id.connection_status_textview);
+//        mInputEditText = (EditText)findViewById(R.id.input_string_edittext);
+//        ListView mMessageListview = (ListView) findViewById(R.id.message_listview);
+//
+//        mConversationArrayAdapter = new ArrayAdapter<>( this,
+//                android.R.layout.simple_list_item_1 );
+//        mMessageListview.setAdapter(mConversationArrayAdapter);
+//
+//
+//        Log.d( TAG, "Initalizing Bluetooth adapter...");
+//
+//        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+//        if (mBluetoothAdapter == null) {
+//            showErrorDialog("This device is not implement Bluetooth.");
+//            return;
+//        }
+//
+//        if (!mBluetoothAdapter.isEnabled()) {
+//            Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+//            startActivityForResult(intent, REQUEST_BLUETOOTH_ENABLE);
+//        }
+//        else {
+//            Log.d(TAG, "Initialisation successful.");
+//
+//            showPairedDevicesListDialog();
+//        }
 
-        btnShowLocation.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View arg0) {
+        if (!isPermission) {
+            callPermission();
+        }
 
-                double startLatitude;
-                double startLongitude;
-                double desLatitude;
-                double desLongitude;
-
-                Thread findRouteThread = new FindRouter(getApplicationContext());
-
-                List<Address> addressList = null;
-
-                try {
-                    addressList = geocoder.getFromLocationName(destination, 10);
-                } catch (IOException e) {
-
-                }
-                String[] splitStr = addressList.get(0).toString().split(",");
-                String address = splitStr[0].substring(splitStr[0].indexOf("\"") + 1, splitStr[0].length() - 2);
-                desLatitude = Double.valueOf(splitStr[10].substring(splitStr[10].indexOf("=") + 1));
-                desLongitude = Double.valueOf(splitStr[12].substring(splitStr[12].indexOf("=") + 1));
-
-                ((FindRouter)findRouteThread).setDesLatitude(desLatitude);
-                ((FindRouter)findRouteThread).setDesLongitude(desLongitude);
-
-                if (!isPermission) {
-                    callPermission();
-                    return;
-                }
-
-                gps = new GpsInfo(MainActivity.this);
-                if (gps.isGetLocation()) {
-
-                    startLatitude = gps.getLatitude();
-                    startLongitude = gps.getLongitude();
-                    ((FindRouter)findRouteThread).setStartLatitude(startLatitude);
-                    ((FindRouter)findRouteThread).setStartLongitude(startLongitude);
-
-                    findRouteThread.start();
+        gps = new GpsInfo(this);
+        findRouteThread = new FindRouter(getApplicationContext(), gps);
+        Timer timer = new Timer();
+        timer.schedule(findRouteThread, 0, 10000);
 
 
-                } else {
-                    gps.showSettingsAlert();
-                }
-            }
-        });
-
-        callPermission();
     }
 
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        if ( mConnectedTask != null ) {
+
+            mConnectedTask.cancel(true);
+        }
+    }
 
     @Override
     protected void onStart() {
@@ -305,7 +278,20 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                         startVoiceRecorder();
                     }
                     else {
+
                         stopVoiceRecorder();
+
+                        try {
+                            addressList = geocoder.getFromLocationName(destination, 10);
+                        } catch (IOException e) {
+
+                        }
+                        String[] splitStr = addressList.get(0).toString().split(",");
+                        String address = splitStr[0].substring(splitStr[0].indexOf("\"") + 1, splitStr[0].length() - 2);
+                        desLatitude = Double.valueOf(splitStr[10].substring(splitStr[10].indexOf("=") + 1));
+                        desLongitude = Double.valueOf(splitStr[12].substring(splitStr[12].indexOf("=") + 1));
+                        ((FindRouter)findRouteThread).setDesLatitude(desLatitude);
+                        ((FindRouter)findRouteThread).setDesLongitude(desLongitude);
                     }
                 }
             });
@@ -395,7 +381,7 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
                                 if (isFinal) {
                                     mText.setText(null);
                                     mAdapter.addResult(text);
-                                    mRecyclerView.smoothScrollToPosition(0);
+                                    //mRecyclerView.smoothScrollToPosition(0);
                                 } else {
                                     mText.setText(text);
                                     destination = text;
@@ -415,7 +401,6 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
         geocoder = new Geocoder(this);
     }
-
 
     private static class ViewHolder extends RecyclerView.ViewHolder {
 
@@ -495,6 +480,304 @@ public class MainActivity extends AppCompatActivity implements MessageDialogFrag
         }
     }
 
+
+
+    private class ConnectTask extends AsyncTask<Void, Void, Boolean> {
+
+        private BluetoothSocket mBluetoothSocket = null;
+        private BluetoothDevice mBluetoothDevice = null;
+
+        ConnectTask(BluetoothDevice bluetoothDevice) {
+            mBluetoothDevice = bluetoothDevice;
+            mConnectedDeviceName = bluetoothDevice.getName();
+
+            //SPP
+            UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
+
+            try {
+                mBluetoothSocket = mBluetoothDevice.createRfcommSocketToServiceRecord(uuid);
+                Log.d( TAG, "create socket for "+mConnectedDeviceName);
+
+            } catch (IOException e) {
+                Log.e( TAG, "socket create failed " + e.getMessage());
+            }
+
+            mConnectionStatus.setText("connecting...");
+        }
+
+
+        @Override
+        protected Boolean doInBackground(Void... params) {
+
+            // Always cancel discovery because it will slow down a connection
+            mBluetoothAdapter.cancelDiscovery();
+
+            // Make a connection to the BluetoothSocket
+            try {
+                // This is a blocking call and will only return on a
+                // successful connection or an exception
+                mBluetoothSocket.connect();
+            } catch (IOException e) {
+                // Close the socket
+                try {
+                    mBluetoothSocket.close();
+                } catch (IOException e2) {
+                    Log.e(TAG, "unable to close() " +
+                            " socket during connection failure", e2);
+                }
+
+                return false;
+            }
+
+            return true;
+        }
+
+
+        @Override
+        protected void onPostExecute(Boolean isSucess) {
+
+            if ( isSucess ) {
+                connected(mBluetoothSocket);
+            }
+            else{
+
+                isConnectionError = true;
+                Log.d( TAG,  "Unable to connect device");
+                showErrorDialog("Unable to connect device");
+            }
+        }
+    }
+
+
+    public void connected( BluetoothSocket socket ) {
+        mConnectedTask = new ConnectedTask(socket);
+        mConnectedTask.execute();
+    }
+
+
+
+    private class ConnectedTask extends AsyncTask<Void, String, Boolean> {
+
+        private InputStream mInputStream = null;
+        private OutputStream mOutputStream = null;
+        private BluetoothSocket mBluetoothSocket = null;
+
+        ConnectedTask(BluetoothSocket socket){
+
+            mBluetoothSocket = socket;
+            try {
+                mInputStream = mBluetoothSocket.getInputStream();
+                mOutputStream = mBluetoothSocket.getOutputStream();
+            } catch (IOException e) {
+                Log.e(TAG, "socket not created", e );
+            }
+
+            Log.d( TAG, "connected to "+mConnectedDeviceName);
+            mConnectionStatus.setText( "connected to "+mConnectedDeviceName);
+        }
+
+
+        @Override
+        protected Boolean doInBackground(Void... params) {
+
+            byte [] readBuffer = new byte[1024];
+            int readBufferPosition = 0;
+
+
+            while (true) {
+
+                if ( isCancelled() ) return false;
+
+                try {
+
+                    int bytesAvailable = mInputStream.available();
+
+                    if(bytesAvailable > 0) {
+
+                        byte[] packetBytes = new byte[bytesAvailable];
+
+                        mInputStream.read(packetBytes);
+
+                        for(int i=0;i<bytesAvailable;i++) {
+
+                            byte b = packetBytes[i];
+                            if(b == '\n')
+                            {
+                                byte[] encodedBytes = new byte[readBufferPosition];
+                                System.arraycopy(readBuffer, 0, encodedBytes, 0,
+                                        encodedBytes.length);
+                                String recvMessage = new String(encodedBytes, "UTF-8");
+
+                                readBufferPosition = 0;
+
+                                Log.d(TAG, "recv message: " + recvMessage);
+                                publishProgress(recvMessage);
+                            }
+                            else
+                            {
+                                readBuffer[readBufferPosition++] = b;
+                            }
+                        }
+                    }
+                } catch (IOException e) {
+
+                    Log.e(TAG, "disconnected", e);
+                    return false;
+                }
+            }
+
+        }
+
+        @Override
+        protected void onProgressUpdate(String... recvMessage) {
+
+            mConversationArrayAdapter.insert(mConnectedDeviceName + ": " + recvMessage[0], 0);
+        }
+
+        @Override
+        protected void onPostExecute(Boolean isSucess) {
+            super.onPostExecute(isSucess);
+
+            if ( !isSucess ) {
+
+
+                closeSocket();
+                Log.d(TAG, "Device connection was lost");
+                isConnectionError = true;
+                showErrorDialog("Device connection was lost");
+            }
+        }
+
+        @Override
+        protected void onCancelled(Boolean aBoolean) {
+            super.onCancelled(aBoolean);
+
+            closeSocket();
+        }
+
+        void closeSocket(){
+
+            try {
+
+                mBluetoothSocket.close();
+                Log.d(TAG, "close socket()");
+
+            } catch (IOException e2) {
+
+                Log.e(TAG, "unable to close() " +
+                        " socket during connection failure", e2);
+            }
+        }
+
+        void write(String msg){
+
+            msg += "\n";
+
+            try {
+                mOutputStream.write(msg.getBytes());
+                mOutputStream.flush();
+            } catch (IOException e) {
+                Log.e(TAG, "Exception during send", e );
+            }
+
+            mInputEditText.setText(" ");
+        }
+    }
+
+
+    public void showPairedDevicesListDialog()
+    {
+        Set<BluetoothDevice> devices = mBluetoothAdapter.getBondedDevices();
+        final BluetoothDevice[] pairedDevices = devices.toArray(new BluetoothDevice[0]);
+
+        if ( pairedDevices.length == 0 ){
+            showQuitDialog( "No devices have been paired.\n"
+                    +"You must pair it with another device.");
+            return;
+        }
+
+        String[] items;
+        items = new String[pairedDevices.length];
+        for (int i=0;i<pairedDevices.length;i++) {
+            items[i] = pairedDevices[i].getName();
+        }
+
+        android.support.v7.app.AlertDialog.Builder builder = new android.support.v7.app.AlertDialog.Builder(this);
+        builder.setTitle("Select device");
+        builder.setCancelable(false);
+        builder.setItems(items, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+
+                ConnectTask task = new ConnectTask(pairedDevices[which]);
+                task.execute();
+            }
+        });
+        builder.create().show();
+    }
+
+
+
+    public void showErrorDialog(String message)
+    {
+        android.support.v7.app.AlertDialog.Builder builder = new android.support.v7.app.AlertDialog.Builder(this);
+        builder.setTitle("Quit");
+        builder.setCancelable(false);
+        builder.setMessage(message);
+        builder.setPositiveButton("OK",  new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+                if ( isConnectionError  ) {
+                    isConnectionError = false;
+                    finish();
+                }
+            }
+        });
+        builder.create().show();
+    }
+
+
+    public void showQuitDialog(String message)
+    {
+        android.support.v7.app.AlertDialog.Builder builder = new android.support.v7.app.AlertDialog.Builder(this);
+        builder.setTitle("Quit");
+        builder.setCancelable(false);
+        builder.setMessage(message);
+        builder.setPositiveButton("OK",  new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+                finish();
+            }
+        });
+        builder.create().show();
+    }
+
+    void sendMessage(String msg){
+
+        if ( mConnectedTask != null ) {
+            mConnectedTask.write(msg);
+            Log.d(TAG, "send message: " + msg);
+            mConversationArrayAdapter.insert("Me:  " + msg, 0);
+        }
+    }
+
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+
+        if(requestCode == REQUEST_BLUETOOTH_ENABLE){
+            if (resultCode == RESULT_OK){
+                //BlueTooth is now Enabled
+                showPairedDevicesListDialog();
+            }
+            if(resultCode == RESULT_CANCELED){
+                showQuitDialog( "You need to enable bluetooth");
+            }
+        }
+    }
 
     private void callPermission() {
         // Check the SDK version and whether the permission is already granted or not.

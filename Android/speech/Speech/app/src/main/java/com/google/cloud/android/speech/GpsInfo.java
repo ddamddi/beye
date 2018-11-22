@@ -30,8 +30,8 @@ public class GpsInfo extends Service implements LocationListener {
     boolean isGetLocation = false;
 
     Location location;
-    double lat; // 위도
-    double lon; // 경도
+    private double lat; // 위도
+    private double lon; // 경도
 
     // 최소 GPS 정보 업데이트 거리 10미터
     private static final long MIN_DISTANCE_CHANGE_FOR_UPDATES = 10;
@@ -88,7 +88,7 @@ public class GpsInfo extends Service implements LocationListener {
                 }
 
                 if (isGPSEnabled) {
-                    if (location == null) {
+                    //if (location == null) {
                         locationManager.requestLocationUpdates(
                                 LocationManager.GPS_PROVIDER,
                                 MIN_TIME_BW_UPDATES,
@@ -101,7 +101,7 @@ public class GpsInfo extends Service implements LocationListener {
                                 lon = location.getLongitude();
                             }
                         }
-                    }
+                    //}
                 }
             }
 
@@ -165,9 +165,11 @@ public class GpsInfo extends Service implements LocationListener {
         return null;
     }
 
+    @Override
     public void onLocationChanged(Location location) {
         // TODO Auto-generated method stub
-
+        lat = location.getLatitude();
+        lon = location.getLongitude();
     }
 
     public void onStatusChanged(String provider, int status, Bundle extras) {

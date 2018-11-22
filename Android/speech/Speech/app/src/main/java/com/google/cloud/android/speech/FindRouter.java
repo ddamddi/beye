@@ -1,7 +1,12 @@
 package com.google.cloud.android.speech;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.os.Build;
 import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.widget.Toast;
 
 import org.json.JSONArray;
@@ -15,26 +20,45 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Locale;
+import java.util.TimerTask;
 
-public class FindRouter extends Thread implements TextToSpeech.OnInitListener{
+public class FindRouter extends TimerTask implements TextToSpeech.OnInitListener{
 
-    private double startLatitude;
-    private double startLongitude;
-    private double desLatitude;
-    private double desLongitude;
+    private double startLatitude = 0;
+    private double startLongitude = 0;
+    private double desLatitude = 0;
+    private double desLongitude = 0;
+
 
     private HttpURLConnection conn = null;
     private TextToSpeech tts;
     private Context context;
+    private GpsInfo gps;
 
-    public FindRouter(Context context) {
+
+    public FindRouter(Context context, GpsInfo gps) {
         this.context = context;
+        this.gps = gps;
     }
 
     @Override
     public void run() {
 
+        if(desLatitude == 0) {
+            return;
+        }
+
+        if (gps.isGetLocation()) {
+            gps.getLocation();
+            startLatitude = gps.getLatitude();
+            startLongitude = gps.getLongitude();
+
+        } else {
+            gps.showSettingsAlert();
+        }
+
         tts = new TextToSpeech(context, this);
+
 
         try {
             URL url = new URL("https://api2.sktelecom.com/tmap/routes/pedestrian?version=1" +
@@ -81,6 +105,7 @@ public class FindRouter extends Thread implements TextToSpeech.OnInitListener{
 
 
             String ttsText = null;
+            String secondText = null;
 
 
             for (int i = 0; i < features.length(); i++) {
@@ -89,9 +114,24 @@ public class FindRouter extends Thread implements TextToSpeech.OnInitListener{
                 if(i == 0) {
                     ttsText  = properties.getString("description");
                 }
-                System.out.println(properties.getString("description"));
+                else if(i == 2) {
+                    secondText = properties.getString("description");
+                    if(secondText.contains("좌회전")) {
+                        secondText = " 후 좌회전";
+                    }
+                    else if(secondText.contains("우회전")) {
+                        secondText = " 후 우회전";
+                    }
+
+                    else if(secondText.contains("도착")) {
+                        secondText = " 후 도착";
+                    }
+                }
+                //System.out.println(properties.getString("description"));
             }
 
+            ttsText += secondText;
+            System.out.println(ttsText);
             tts.setPitch((float) 0.1);
             tts.setSpeechRate((float) 1.0);
             tts.speak(ttsText, TextToSpeech.QUEUE_FLUSH, null);
@@ -150,4 +190,6 @@ public class FindRouter extends Thread implements TextToSpeech.OnInitListener{
     public void setDesLongitude(double desLongitude) {
         this.desLongitude = desLongitude;
     }
+
+
 }

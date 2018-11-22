@@ -5,3 +5,4 @@
 - v1.3 : Add. Geocoder ( Get Latitude, Longitude from address )
 - v1.4 : Add. Bluetooth ( not completed )
 - v1.5 : Add. Text To Speech
+- v1.6 : Edit with repetitive getting directions
