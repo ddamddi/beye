@@ -16,13 +16,14 @@
 #include <bluetooth/rfcomm.h>
 #define resizeSize 2
 
+
 //bluetooth code
 
 bdaddr_t bdaddr_any = { 0, 0, 0, 0, 0, 0 };
 bdaddr_t bdaddr_local = { 0, 0, 0, 0xff, 0xff, 0xff };
 
 int _str2uuid(const char *uuid_str, uuid_t *uuid) {
-	/* This is from the pybluez stack */
+	// This is from the pybluez stack 
 
 	uint32_t uuid_int[4];
 	char *endptr;
@@ -91,6 +92,7 @@ sdp_session_t *register_service(uint8_t rfcomm_channel) {
 	* Regardless of the UUID used, it must match the one that the Armatus Android app is searching
 	* for.
 	*/
+
 	const char *service_name = "Armatus Bluetooth server";
 	const char *svc_dsc = "A HERMIT server that interfaces with the Armatus Android app";
 	const char *service_prov = "Armatus";
@@ -219,7 +221,8 @@ char *read_server(int client) {
 		return input;
 	}
 	else {
-		return NULL;
+		printf("received [z]\n" );
+		return "z";
 	}
 }
 
@@ -243,11 +246,17 @@ int noisehandle = 0;// to handle kind of noise
 int errorhandle = 0;
 int stairhandle = 0;
 int downhandle = 0;
-int savesky = 0;
-int skyhandle = 0;
 Mat savemov;
+int test_flag =0;
+int obf =0;
+int upf =0;
+int dof =0;
+int crs =0;
 bool saveset = false; // to handle conflict
 bool downbit = false;
+bool stairbit = false;
+int stairbitcheck = 0;
+int downstairbit = 0;
 
 class WatershedSegmenter {
 private:
@@ -266,8 +275,8 @@ public:
 	}
 };
 
-int main() {
-	
+int image_process(int client) {
+
 	//global variables
 	Mat origin;		// 원본
 	Mat resizeImage;	// 사이즈 조정
@@ -279,39 +288,39 @@ int main() {
 	Mat thresholdImage;
 	Mat ContourImg;
 
-	int client = init_server();
 	Ptr< BackgroundSubtractor> pMOG2; //MOG2 Background subtractor
 
+	
 	pMOG2 = createBackgroundSubtractorMOG2(500, 16, true);
 
-	//char fileName[100] = "Test_normal1.mp4";
+	//char fileName[100] = "output4.mp4";
 	//VideoCapture stream1(fileName);
 	raspicam::RaspiCam_Cv Camera;
 
 	Camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
-	Camera.set(CV_CAP_PROP_FRAME_WIDTH,640);
+	Camera.set(CV_CAP_PROP_FRAME_WIDTH, 640);
 	Camera.set(CV_CAP_PROP_FRAME_HEIGHT, 480);
 	Mat element = getStructuringElement(MORPH_RECT, Size(7, 7), Point(3, 3));
 	Mat element2 = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
 	Mat element3 = getStructuringElement(MORPH_RECT, Size(1, 1));
-	char msgsend[3] ="df" ;
 
-	if(!Camera.open()){
-		cerr<<"error opening the camera"<<endl;
+	if (!Camera.open()) {
+		cerr << "error opening the camera" << endl;
 		return -1;
 	}
 	//unconditional loop   
 	while (true) {
-
-
+		char *recv_message = read_server(client); 
 		//if (!(stream1.read(origin))) //get one frame form video   
-			//break;
-
+		//break;
+		if(recv_message[0] == 'c'){
+			test_flag = 1;
+		}
 		// 이미지 size 조절
 		Camera.grab();
 		Camera.retrieve(origin);
 		resize(origin, resizeImage, Size(origin.size().width / resizeSize, origin.size().height / resizeSize));
-
+	 
 		/////////////////////////////////////////////////////////////////
 		//1단계 : 밝기 대조 조정
 		contrastImage = resizeImage.clone();
@@ -325,20 +334,20 @@ int main() {
 		//imshow("2. grayscale", gray);
 		Mat binary;
 		Mat binaryroad;
-		threshold(gray, binary, 15, 255, THRESH_BINARY);
+		threshold(gray, binary, 55, 255, THRESH_BINARY);
 		threshold(gray, binaryroad, 127, 255, THRESH_BINARY);
 		dilate(binaryroad, binaryroad, Mat(), Point(1, 1), 1);
 
 		//imshow("binset", binaryroad);
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
-				binary.at<uchar>(y, x) = 255- binary.at<uchar>(y, x);
+				binary.at<uchar>(y, x) = 255 - binary.at<uchar>(y, x);
 			}
 		}
 		Mat edge;
 		Mat bincheck;
 		bincheck = gray.clone();
-		threshold(bincheck, bincheck, 100, 255, THRESH_BINARY);
+		threshold(bincheck, bincheck, 110, 255, THRESH_BINARY);
 		Canny(bincheck, bincheck, 130, 210, 3);
 		threshold(bincheck, bincheck, 0, 255, CV_THRESH_BINARY_INV);
 		erode(bincheck, bincheck, Mat(), Point(1, 1), 1);
@@ -358,12 +367,12 @@ int main() {
 						downsomethingy = y;
 						countforfirst = true;
 					}
-					}
+				}
 			}
 			if (countforfirst) {
 				if (abs(downsomethingy - downy) < 4) {
 					countformax = true;
-					}
+				}
 				downy = downsomethingy;
 			}
 			if (countformax) {
@@ -373,43 +382,12 @@ int main() {
 			countformax = false;
 			countforfirst = false;
 		}
-		/*for (int y = (contrastImage.rows / 5 * 4); y < contrastImage.rows; y++) {
-			for (int x = (contrastImage.cols / 5 * 2); x > 0; x--) {
-				if (bincheck.at<uchar>(y, x) == 255) {
-					if (x > downmar) {
-						downmar = x;
-					}
-				}
-
-			}
-		}
-		for (int y = (contrastImage.rows / 5 * 4); y < contrastImage.rows; y++) {
-			for (int x = (contrastImage.cols / 5 * 2); x < contrastImage.cols; x++) {
-				if (bincheck.at<uchar>(y, x) == 255) {
-					if (x - downmar < downindex) {
-						downindex = x - downmar;
-						downmax = x;
-					}
-					if (downindex == 0) {
-						downindex = x - downmar;
-						downmax = x;
-					}
-				}
-			}
-		}
-		if (downindex > (downmar + 30)) {
-			downindex = downindex - 30;
-		}
-		if (downmar == 0 && downindex == 0) {
-			downmar = (contrastImage.cols / 5 * 2) - 75;
-			downindex = 150;
-		}*/
 		Canny(gray, edge, 130, 210, 3); // Canny 연산
 		threshold(edge, edge, 0, 255, CV_THRESH_BINARY_INV); // sobel 영상과 비교하려고 반전
-		//imshow("Canny Image", edge);
+															 //imshow("Canny Image", edge);
 
-		/////////////////////////////////////////////////////////////////
-		//2단계 : 블러 처리 -> 인식되는 범위를 늘려줌
+															 /////////////////////////////////////////////////////////////////
+															 //2단계 : 블러 처리 -> 인식되는 범위를 늘려줌
 		blur(sharpening, blurImage, Size(3, 3));
 		//medianBlur(resizeF, resizeF, 5);
 		//GaussianBlur(resizeF, resizeF, Size(5, 5), 1.5);
@@ -434,11 +412,11 @@ int main() {
 		erode(edge, labeling, Mat(), Point(1, 1), 1);
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
-					if ((binary.at<uchar>(y, x) - labeling.at<uchar>(y, x)) > (150)) {
-						magic.at<uchar>(y, x) = (binary.at<uchar>(y, x) - labeling.at<uchar>(y, x));
-					}
-					else
-						magic.at<uchar>(y, x) = 0;
+				if ((binary.at<uchar>(y, x) - labeling.at<uchar>(y, x)) >(150)) {
+					magic.at<uchar>(y, x) = (binary.at<uchar>(y, x) - labeling.at<uchar>(y, x));
+				}
+				else
+					magic.at<uchar>(y, x) = 0;
 			}
 		}
 		Mat magic4;
@@ -458,9 +436,9 @@ int main() {
 		imshow("blob", magic2);
 		int xmar = 0;
 		int marindex = 0;
-		int xmax=0;
-		for (int y = (contrastImage.rows/6*5); y < contrastImage.rows; y++) {
-			for (int x = (contrastImage.cols / 5*2); x > 0; x--) {
+		int xmax = 0;
+		for (int y = (contrastImage.rows / 6 * 5); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5 * 2); x > 0; x--) {
 				if (magic2.at<uchar>(y, x) == 255) {
 					if (x > xmar) {
 						xmar = x;
@@ -469,11 +447,11 @@ int main() {
 
 			}
 		}
-		for (int y = (contrastImage.rows/6*5); y < contrastImage.rows; y++) {
-			for (int x = (contrastImage.cols / 5*2); x < contrastImage.cols; x++) {
+		for (int y = (contrastImage.rows / 6 * 5); y < contrastImage.rows; y++) {
+			for (int x = (contrastImage.cols / 5 * 2); x < contrastImage.cols; x++) {
 				if (magic2.at<uchar>(y, x) == 255) {
-					if (x-xmar < marindex) {
-						marindex = x-xmar;
+					if (x - xmar < marindex) {
+						marindex = x - xmar;
 						xmax = x;
 					}
 					if (marindex == 0) {
@@ -483,8 +461,8 @@ int main() {
 				}
 			}
 		}
-		if (marindex > (xmar+30)) {
-			marindex = marindex-30;
+		if (marindex > (xmar + 30)) {
+			marindex = marindex - 30;
 		}
 		if (xmar == 0 || marindex == 0) {
 			xmar = (contrastImage.cols / 5 * 2) - 75;
@@ -507,7 +485,7 @@ int main() {
 		//centre rectangle
 		int centreW = closing.cols / 2;
 		int centreH = closing.rows / 4;
-		markers(Rect(xmar, closing.rows/6*5, marindex, closing.rows / 6)) = Scalar::all(2);
+		markers(Rect(xmar, closing.rows / 6 * 5, marindex, closing.rows / 6)) = Scalar::all(2);
 		markers.convertTo(markers, CV_BGR2GRAY);
 		imshow("markers", markers);
 		//Create watershed segmentation object
@@ -534,41 +512,41 @@ int main() {
 		cvtColor(dest, something, CV_RGB2GRAY);
 		Mat hard;
 		hard = magic2.clone();
-		int count =0;
+		int count = 0;
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
-				if (something.at<uchar>(y, x) ==0) {
+				if (something.at<uchar>(y, x) == 0) {
 					magic2.at<uchar>(y, x) = 0;
 				}
 			}
 		}
-		int countmax = contrastImage.cols/4*2 - contrastImage.rows/5*2;
+		int countmax = contrastImage.cols / 4 * 2 - contrastImage.rows / 5 * 2;
 		int k = 0;
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
-				k =	abs(contrastImage.rows - y);
-				if (x < (contrastImage.cols/4) +k/2) {
+				k = abs(contrastImage.rows - y);
+				if (x < (contrastImage.cols / 5) + k / 2) {
 					hard.at<uchar>(y, x) = 0;
 				}
-				else if (x > (contrastImage.cols/4 * 3) -k/2) {
+				else if (x >(contrastImage.cols / 5 * 4) - k / 2) {
 					hard.at<uchar>(y, x) = 0;
 				}
-				else if (y < contrastImage.rows / 5 *3) {
+				else if (y < contrastImage.rows / 5*3){
 					hard.at<uchar>(y, x) = 0;
 				}
 				if (y == (contrastImage.rows / 5 * 3) - 1) {
 
 				}
 			}
-		}		
+		}
 		Mat calculatemov;
 		calculatemov = closing.clone();
-		int tmpmov=0;
-		for (int y = 0; y < contrastImage.rows; y++) {
+		int tmpmov = 0;
+		for (int y = 0; y < contrastImage.rows /5*4; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
 				if (hard.at < uchar>(y, x) != 0) {
 					count++;
-					tmpmov = tmpmov + y + abs(x-contrastImage.cols/2);
+					tmpmov = tmpmov + y + abs(x - contrastImage.cols / 2);
 				}
 				else {
 					calculatemov.at<Vec3b>(y, x)[0] = 0;
@@ -587,7 +565,7 @@ int main() {
 						calculatemov.at<Vec3b>(y, x)[2] = 0;
 					}
 					//else if (calculatemov.at<Vec3b>(y, x)[0] != 0 || calculatemov.at<Vec3b>(y, x)[1] != 0 || calculatemov.at<Vec3b>(y, x)[2] != 0) {
-						//movcounter++;
+					//movcounter++;
 					//}
 				}
 			}
@@ -608,45 +586,70 @@ int main() {
 		else if (errorhandle > 5) {
 			errorhandle = 5;
 		}
-		else if(errorhandle>0){
+		else if (errorhandle>0) {
 			errorhandle--;
+		}
+		else if(errorhandle <3){
+			obf =0;
 		}
 
 		if (errorhandle > 3) {
 			if (movcount != 0 && count > 100) {
-				if (movcounter > tmpmov * 2 ) {
+				if (movcounter > tmpmov * 2) {
 					if (downhandle > 5) {
-						if (count < 100) {
-							msgsend[0] = 'c';
-							write_server(client, msgsend);
+						if (count < 70 && stairbit ==false && downbit == false) {
+							if(obf == 0){
+								recv_message[0] = 'o';
+								write_server(client, recv_message);
 						}
+						obf ++;
+							}
 					}
-					else {
-						msgsend[0] = 'c';
-						write_server(client, msgsend);
+					else if(stairbit ==false && downbit == false){
+						if(obf ==0){
+							recv_message[0] = 'c';
+							write_server(client, recv_message);
+					}	
+					obf ++;
 					}
 				}
 				else {
 					if (downhandle > 5) {
-						if (count < 100) {
-							msgsend[0] = 'o';
-							write_server(client, msgsend);
+						if (count < 70 && stairbit ==false && downbit == false) {
+							if(obf ==0){
+								recv_message[0] = 'o';
+								write_server(client, recv_message);
+						}
+						obf++;
 						}
 					}
-					else {
-						msgsend[0] = 'o';
-						write_server(client, msgsend);
+					else if(stairbit ==false && downbit == false){
+						if(obf ==0){
+							recv_message[0] = 'o';
+							write_server(client, recv_message);
+					}
+					obf++;
 					}
 				}
 			}
-			else if (count > 100) {
-				msgsend[0] = 'o';
-				write_server(client, msgsend);
+			else if (count > 70 && stairbit ==false && downbit == false) {
+				if(obf ==0){
+					recv_message[0] = 'o';
+					write_server(client, recv_message);
+			}
+			obf++;
+			}
+			if(downbit && count < 140 && count >70){
+				if(obf ==0){
+					recv_message[0] = 'o';
+					write_server(client, recv_message);
+			}
+			obf++;
 			}
 		}
 		movcounter = 0;
 		movcount = tmpmov;
-		int cross=0;
+		int cross = 0;
 		bool largestbit = false;
 		for (int y = 0; y < contrastImage.rows; y++) {
 			for (int x = 0; x < contrastImage.cols; x++) {
@@ -658,98 +661,144 @@ int main() {
 				}
 			}
 		}
-		if (cross > contrastImage.rows / 5*3 ) {
+		if (cross > contrastImage.rows / 5 * 3) {
 			noisehandle++;
 		}
-		else if (noisehandle > 7) {
-			noisehandle = 7;
+		else if (noisehandle > 4) {
+			noisehandle = 4;
 		}
-		else if(noisehandle>0){
+		else if (noisehandle>0) {
 			noisehandle--;
 		}
-		if (noisehandle > 7) {
-			msgsend[0] = 'c';
-			write_server(client, msgsend);
+		if (test_flag == 1 ) {
+			if (noisehandle > 4 || stairhandle > 6 ) {
+					recv_message[0] = 'r';
+					write_server(client, recv_message);
+					//Camera.release();
+					int ret = system("python3 opencv_save.py");
+					char buffer[10];
+					test_flag =0;
+					return 0;
+			}
 		}
-		int downstair=0;
+		else if(noisehandle <2){
+			test_flag = 0;
+		}
+		int downstair = 0;
 		int countforstair = 0;
 		for (int y = 1; y < contrastImage.rows; y++) {
-			int x = contrastImage.cols / 2;
-			if (binaryroad.at<uchar>(y, x) == 255 && binaryroad.at<uchar>(y - 1, x) != 255) {
-				countforstair++;
-			}
-		}
-		int sky = 0;
-		for (int x = 0; x < contrastImage.cols; x++) {
-			for (int y = 0; y < contrastImage.rows; y++) {
-				if (forstair.at<uchar>(y, x) != 0) {
-					sky++;
+			int x = contrastImage.cols/2;
+			if (bincheck.at<uchar>(y, x) == 255 && bincheck.at<uchar>(y - 1, x) != 255) {
+				if(bincheck.at<uchar>(y, x-2) == 255 && bincheck.at<uchar>(y, x+2) == 255){
+						if(bincheck.at<uchar>(y, x-1) = 255 && bincheck.at<uchar>(y, x+1) == 255){
+						countforstair++;
+					}
 				}
+					}
 			}
-		}
-		if (savesky == 0) {
-			savesky = sky;
-		}
-		else if (sky+30<savesky){
-			skyhandle++;
-		}
-		else if (savesky > 7) {
-			skyhandle = 7;
-		}
-		else if (savesky > 0) {
-			skyhandle --;
-		}
-		savesky = sky;
-		if (countforstair > 4) {
+		if (countforstair > 2) {
 			stairhandle++;
 		}
-		else if (stairhandle>4) {
-			stairhandle = 4;
+		else if (stairhandle>8) {
+			stairhandle = 8;
 		}
 		else if (stairhandle>0) {
 			stairhandle--;
 		}
-		if (downindex > 120 && errorhandle<5) {
+		if (downindex > 120 ) {
 			downhandle++;
 		}
-		else if (downhandle > 10) {
-			downhandle = 10;
+		else if (downhandle > 15) {
+			downhandle = 15;
 		}
-		else if (downhandle>0){
+		else if (downhandle>0) {
 			downhandle--;
 		}
-		if (stairhandle > 4 && noisehandle < 1 && errorhandle <5 && downbit == false&&downhandle>0) {
-			msgsend[0] = 'u';
-			write_server(client, msgsend);
+		else if(downhandle<1){
+			dof =0;
 		}
-		else if (downhandle > 10 && stairhandle<4) {
+		if(stairbit == false){
+			upf =0;
+		}
+			
+		if (stairhandle > 8  && downbit == false && downhandle>6 && noisehandle>3) {
+
+			stairbit = true;
+			stairbitcheck = 0;
+		}
+		else if(stairhandle > 3 && downbit == false && downhandle>6 && noisehandle>3){
+			stairbitcheck =0;
+		}
+		else if (noisehandle > 3 && stairbit == true) {
+			stairbitcheck--;
+		}
+		else if (stairbitcheck > 15 && downhandle <3 && noisehandle<3) {
+			stairbit = false;
+			stairbitcheck =0;
+		}
+		else {
+			stairbitcheck++;
+		}
+		if (stairbit) {
+			if (upf == 0) {
+							if(test_flag ==0){
+				recv_message[0] = 'u';
+				write_server(client, recv_message);
+			}
+			}
+			upf++;
+		}
+		else if (downhandle > 30 && stairbit == false) {
 			noisehandle = 0;
 			downbit = true;
-			msgsend[0] = 'd';
-			write_server(client, msgsend);
+			downstairbit = 1;
+			if(dof ==0){
+							if(test_flag ==0){
+				recv_message[0] = 'd';
+				write_server(client, recv_message);
+			}
 		}
-		else if (downbit) {
-			msgsend[0] = 'd';
-			write_server(client, msgsend);
-			if (downhandle>5) {
-				msgsend[0] = 'd';
-				write_server(client, msgsend);
-			}
-			else if (skyhandle>5) {
-				downbit = false;
-				msgsend[0] ='d' ;
-				write_server(client, msgsend);
-			}
+		dof++;
+		}
+		else if (downbit && stairbit == false) {
+		dof++;
+		}
+		if (downstairbit > 0) {
+			downstairbit++;
+		}
+		if (downstairbit > 1500) {
+			downstairbit = 0;
+			downbit = false;
 		}
 		imshow("..", hard);
 		//imshow("gray", something);
 		//imshow("calculated", magic2);
 
 		if (waitKey(30) >= 0)
-			break;
-		char *recv_message = read_server(client);
+			return 1;
 		if (recv_message == NULL) {
 			printf("client disconnected\n");
+			break;
+		}
+		if(dof > 50){
+			dof =0;
+		}
+		if(upf > 50){
+			upf =0;
+		}
+		if(obf >50){
+			obf =0;
+		}
+	}
+	return 0;
+}
+
+int main() {
+	int i = 0;
+	int client = init_server();
+	while (1) {
+		image_process(client);
+		if (waitKey(30) >= 0) {
 			break;
 		}
 	}

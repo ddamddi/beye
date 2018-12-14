@@ -7,5 +7,5 @@ find_package(raspicam REQUIRED)
 find_package(OpenCV)
 
 
-add_executable(opencv opencv_jin.cpp)
-target_link_libraries(opencv "${raspicam_CV_LIBS};bluetooth")
+add_executable(opencvfinal opencv_final.cpp)
+target_link_libraries(opencvfinal "${raspicam_CV_LIBS};bluetooth")
